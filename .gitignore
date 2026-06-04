@@ -1,0 +1,74 @@
+# =====================
+# NEXT.JS
+# =====================
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.vercel/
+
+# Logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# Environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# =====================
+# FASTAPI / PYTHON
+# =====================
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+
+# Virtual environments
+backend/venv/
+backend/.venv/
+backend/env/
+
+# Python cache
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+
+# Environment files
+backend/.env
+
+# SQLite databases
+backend/*.db
+backend/*.sqlite3
+
+# =====================
+# IDE
+# =====================
+.vscode/
+.idea/
+
+# =====================
+# OS FILES
+# =====================
+.DS_Store
+Thumbs.db
+
+# =====================
+# LOGS
+# =====================
+*.log
+
+# =====================
+# COVERAGE
+# =====================
+coverage/
+htmlcov/
+.coverage
+
+# =====================
+# BUILD FILES
+# =====================
+dist/
+build/
