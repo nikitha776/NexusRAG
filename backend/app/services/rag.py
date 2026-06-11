@@ -46,10 +46,17 @@ def upsert_chunks(
     workspace_id: str,
     chunks: list[str],
 ):
+    import time
+    import logging
+    logger = logging.getLogger(__name__)
+
     client = get_qdrant_client()
     ensure_collection()
 
+    t0 = time.time()
     embeddings = generate_embeddings(chunks)
+    t1 = time.time()
+    logger.info(f"[TIMING] Embedding generation: {t1 - t0:.2f}s ({len(chunks)} chunks)")
 
     points = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
@@ -67,13 +74,16 @@ def upsert_chunks(
             )
         )
 
-    batch_size = 100
+    t2 = time.time()
+    batch_size = 500
     for start in range(0, len(points), batch_size):
         batch = points[start : start + batch_size]
         client.upsert(
             collection_name=settings.QDRANT_COLLECTION,
             points=batch,
         )
+    t3 = time.time()
+    logger.info(f"[TIMING] Qdrant upsert: {t3 - t2:.2f}s ({len(points)} points)")
 
     return len(points)
 
@@ -143,40 +153,71 @@ def delete_document_chunks(document_id: str):
 async def process_document_background(document_id: str, file_content: bytes, filename: str, workspace_id: str):
     import logging
     import asyncio
+    import time
     from uuid import uuid4
     from datetime import datetime, timezone
     from app.db.supabase_client import get_supabase_admin
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Processing document {document_id}: {filename} ({len(file_content)} bytes)")
+    total_start = time.time()
+    logger.info(f"[TIMING] Processing document {document_id}: {filename} ({len(file_content)} bytes)")
 
     try:
-        text = extract_text(file_content, filename)
-        logger.info(f"Extracted {len(text)} chars from {filename}")
+        t0 = time.time()
+        text = await asyncio.to_thread(extract_text, file_content, filename)
+        t1 = time.time()
+        logger.info(f"[TIMING] Text extraction: {t1 - t0:.2f}s ({len(text)} chars from {filename})")
 
-        chunks = chunk_text(text)
-        logger.info(f"Split into {len(chunks)} chunks")
-
-        num_points = await asyncio.to_thread(
-            upsert_chunks, document_id, workspace_id, chunks
-        )
-        logger.info(f"Upserted {num_points} vectors to Qdrant")
+        t2 = time.time()
+        chunks = await asyncio.to_thread(chunk_text, text)
+        t3 = time.time()
+        logger.info(f"[TIMING] Chunking: {t3 - t2:.2f}s ({len(chunks)} chunks)")
 
         supabase = get_supabase_admin()
-        for i, chunk_text_content in enumerate(chunks):
-            supabase.table("document_chunks").insert({
+
+        chunk_records = [
+            {
                 "id": str(uuid4()),
                 "document_id": document_id,
                 "chunk_index": i,
                 "content": chunk_text_content,
                 "token_count": len(chunk_text_content.split()),
-            }).execute()
+            }
+            for i, chunk_text_content in enumerate(chunks)
+        ]
 
-        supabase.table("documents").update({
-            "status": "ready",
-            "chunk_count": len(chunks),
-        }).eq("id", document_id).execute()
-        logger.info(f"Document {document_id} processed: {len(chunks)} chunks stored")
+        async def insert_chunks_to_db():
+            st = time.time()
+            batch_size = 500
+            for start in range(0, len(chunk_records), batch_size):
+                batch = chunk_records[start : start + batch_size]
+                await asyncio.to_thread(
+                    lambda b=batch: supabase.table("document_chunks").insert(b).execute()
+                )
+            logger.info(f"[TIMING] Supabase chunk insert: {time.time() - st:.2f}s ({len(chunk_records)} records)")
+
+        async def upsert_vectors():
+            st = time.time()
+            await asyncio.to_thread(
+                upsert_chunks, document_id, workspace_id, chunks
+            )
+            logger.info(f"[TIMING] Vector upsert (total incl. embed+qdrant): {time.time() - st:.2f}s")
+
+        t4 = time.time()
+        await asyncio.gather(upsert_vectors(), insert_chunks_to_db())
+        t5 = time.time()
+        logger.info(f"[TIMING] Parallel upsert+insert: {t5 - t4:.2f}s")
+
+        t6 = time.time()
+        await asyncio.to_thread(
+            lambda: supabase.table("documents").update({
+                "status": "ready",
+                "chunk_count": len(chunks),
+            }).eq("id", document_id).execute()
+        )
+        t7 = time.time()
+        logger.info(f"[TIMING] Status update: {t7 - t6:.2f}s")
+        logger.info(f"[TIMING] TOTAL processing time: {time.time() - total_start:.2f}s for {filename}")
 
     except Exception as e:
         logger.error(f"Document processing failed for {document_id}: {e}", exc_info=True)
@@ -188,6 +229,21 @@ async def process_document_background(document_id: str, file_content: bytes, fil
             }).eq("id", document_id).execute()
         except Exception:
             logger.error(f"Failed to update error status for {document_id}")
+
+        # Best-effort cleanup of orphaned data from either side
+        # of the parallel gather (vectors in Qdrant / chunks in Supabase)
+        try:
+            delete_document_chunks(document_id)
+            logger.info(f"Cleaned up Qdrant vectors for failed document {document_id}")
+        except Exception:
+            logger.error(f"Failed to clean up Qdrant vectors for {document_id}")
+
+        try:
+            supabase = get_supabase_admin()
+            supabase.table("document_chunks").delete().eq("document_id", document_id).execute()
+            logger.info(f"Cleaned up Supabase chunks for failed document {document_id}")
+        except Exception:
+            logger.error(f"Failed to clean up Supabase chunks for {document_id}")
 
 
 async def delete_document_vectors(document_id: str):

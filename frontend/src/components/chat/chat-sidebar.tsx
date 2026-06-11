@@ -7,7 +7,7 @@ import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Plus, MessageSquare, Trash2, ArrowLeft } from "lucide-react";
+import { Plus, MessageSquare, Trash2 } from "lucide-react";
 import type { ChatSession } from "@/types";
 
 interface ChatSidebarProps {
@@ -61,15 +61,15 @@ export function ChatSidebar({ workspaceId, activeSessionId }: ChatSidebarProps) 
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-3">
+      <div className="p-4">
         <Button
           variant="outline"
           size="sm"
-          className="w-full justify-start"
+          className="w-full justify-start gap-2 h-9 font-medium"
           onClick={handleCreateSession}
           disabled={creating}
         >
-          <Plus className="mr-2 h-4 w-4" />
+          <Plus className="h-4 w-4" />
           New Chat
         </Button>
       </div>
@@ -77,27 +77,39 @@ export function ChatSidebar({ workspaceId, activeSessionId }: ChatSidebarProps) 
       <Separator />
 
       <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
+        <div className="p-2 space-y-0.5">
           {chatSessions.map((session) => (
             <div
               key={session.id}
-              className={`group flex items-center gap-2 p-2 rounded-md cursor-pointer hover:bg-muted/50 ${
-                activeSessionId === session.id ? "bg-muted" : ""
+              className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                activeSessionId === session.id
+                  ? "bg-primary/10 text-primary"
+                  : "hover:bg-muted/60 text-foreground"
               }`}
               onClick={() => router.push(`/workspace/${workspaceId}/chat/${session.id}`)}
+              title={session.title}
             >
-              <MessageSquare className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              {activeSessionId === session.id && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+              )}
+              <MessageSquare
+                className={`h-4 w-4 flex-shrink-0 ${
+                  activeSessionId === session.id
+                    ? "text-primary"
+                    : "text-muted-foreground"
+                }`}
+              />
               <span className="text-sm truncate flex-1">{session.title}</span>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDeleteSession(session.id);
                 }}
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
           ))}

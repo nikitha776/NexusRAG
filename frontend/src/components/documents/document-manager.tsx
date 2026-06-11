@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
@@ -17,14 +17,26 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     try {
       const docs = await api.documents.list(workspaceId);
       setDocuments(docs);
     } catch (e) {
       console.error("Failed to load documents:", e);
     }
-  };
+  }, [workspaceId, setDocuments]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  const hasProcessing = documents.some((d) => d.status === "processing");
+
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const interval = setInterval(loadDocuments, 3000);
+    return () => clearInterval(interval);
+  }, [hasProcessing, loadDocuments]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -61,70 +73,95 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
   const statusColor = (status: Document["status"]) => {
     switch (status) {
       case "ready":
-        return "bg-green-100 text-green-800";
+        return "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300";
       case "processing":
-        return "bg-yellow-100 text-yellow-800";
+        return "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300";
       case "error":
-        return "bg-red-100 text-red-800";
+        return "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300";
       default:
-        return "bg-gray-100 text-gray-800";
+        return "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-300";
     }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Documents</h3>
+    <div className="space-y-5">
+      {/* Section header */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary/10">
+          <FileText className="h-4 w-4 text-primary" />
+        </div>
         <div>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleUpload}
-            multiple
-            accept=".pdf,.txt,.md,.csv"
-            className="hidden"
-          />
-          <Button
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="mr-2 h-4 w-4" />
-            )}
-            Upload
-          </Button>
+          <h3 className="text-base font-semibold leading-tight">Documents</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Upload and manage your source documents
+          </p>
         </div>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        Supported: PDF, TXT, MD, CSV
+      {/* Upload dropzone */}
+      <div>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleUpload}
+          multiple
+          accept=".pdf,.txt,.md,.csv"
+          className="hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-6 py-5 transition-colors hover:border-primary/40 hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          {uploading ? (
+            <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+          ) : (
+            <Upload className="h-6 w-6 text-muted-foreground" />
+          )}
+          <div className="text-center">
+            <p className="text-sm font-medium">
+              {uploading ? "Uploading..." : "Click to upload documents"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              PDF, TXT, MD, CSV supported
+            </p>
+          </div>
+        </button>
       </div>
 
       {documents.length === 0 ? (
-        <div className="text-center py-8 border rounded-lg">
-          <FileText className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-          <p className="text-sm text-muted-foreground">
-            No documents uploaded yet
+        <div className="text-center py-10 rounded-xl border border-dashed border-muted-foreground/20 bg-muted/20">
+          <div className="flex items-center justify-center h-12 w-12 rounded-full bg-muted mx-auto mb-3">
+            <FileText className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <p className="text-sm font-medium text-foreground/70">
+            No documents yet
+          </p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-[200px] mx-auto">
+            Upload PDFs, text files, or CSVs to start building your knowledge base
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {documents.map((doc) => (
             <div
               key={doc.id}
-              className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50"
+              className="group flex items-center gap-3 px-3.5 py-3 rounded-lg border border-transparent hover:border-border hover:bg-muted/40 transition-colors"
             >
-              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <div className="flex items-center justify-center h-8 w-8 rounded-md bg-primary/5 flex-shrink-0">
+                <FileText className="h-4 w-4 text-primary/70" />
+              </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{doc.filename}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatFileSize(doc.file_size)} • {doc.chunk_count} chunks
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {formatFileSize(doc.file_size)} &middot; {doc.chunk_count} chunks
                 </p>
               </div>
-              <Badge className={statusColor(doc.status)} variant="secondary">
+              <Badge
+                className={`${statusColor(doc.status)} text-[11px] font-medium px-2 py-0.5`}
+                variant="secondary"
+              >
                 {doc.status === "processing" && (
                   <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                 )}
@@ -136,10 +173,10 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 flex-shrink-0"
+                className="h-7 w-7 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
                 onClick={() => handleDelete(doc.id)}
               >
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
               </Button>
             </div>
           ))}

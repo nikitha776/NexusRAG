@@ -33,15 +33,40 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-background">
       <Header user={user} />
-      <main className="flex-1 p-6 max-w-screen-2xl mx-auto w-full">
+      <main className="flex-1 p-8 max-w-screen-2xl mx-auto w-full">
         {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+          <div className="space-y-8">
+            {/* Welcome skeleton */}
+            <div className="space-y-2">
+              <div className="h-8 w-64 bg-muted rounded-md animate-pulse" />
+              <div className="h-5 w-96 bg-muted rounded-md animate-pulse" />
+            </div>
+            {/* Cards skeleton */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-6 border rounded-xl space-y-3">
+                  <div className="h-5 w-32 bg-muted rounded animate-pulse" />
+                  <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                  <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
-          <WorkspaceList workspaces={workspaces} onRefresh={loadWorkspaces} />
+          <div className="space-y-8">
+            {/* Welcome message area */}
+            <div className="space-y-1">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Welcome back{user?.user_metadata?.full_name ? `, ${user.user_metadata.full_name.split(' ')[0]}` : ''}
+              </h1>
+              <p className="text-muted-foreground">
+                Manage your workspaces and explore your documents
+              </p>
+            </div>
+            <WorkspaceList workspaces={workspaces} onRefresh={loadWorkspaces} />
+          </div>
         )}
       </main>
     </div>

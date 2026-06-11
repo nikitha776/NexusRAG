@@ -103,11 +103,13 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
       </div>
 
       {workspaces.length === 0 ? (
-        <div className="text-center py-16">
-          <FolderOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+        <div className="text-center py-20">
+          <div className="p-5 rounded-3xl bg-muted/50 inline-block mb-5">
+            <FolderOpen className="h-12 w-12 text-muted-foreground/60" />
+          </div>
           <h3 className="text-lg font-medium mb-2">No workspaces yet</h3>
-          <p className="text-muted-foreground mb-4">
-            Create your first workspace to get started
+          <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+            Create your first workspace to start organizing and exploring your documents with AI
           </p>
         </div>
       ) : (
@@ -115,13 +117,15 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
           {workspaces.map((ws) => (
             <Card
               key={ws.id}
-              className="cursor-pointer hover:shadow-md transition-shadow group"
+              className="cursor-pointer hover:shadow-lg hover:border-border transition-all duration-200 group border-border/60"
               onClick={() => router.push(`/workspace/${ws.id}`)}
             >
-              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-base">{ws.name}</CardTitle>
+              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3 pt-5 px-5">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/15 transition-colors">
+                    <FolderOpen className="h-4.5 w-4.5 text-primary" />
+                  </div>
+                  <CardTitle className="text-base font-semibold tracking-tight">{ws.name}</CardTitle>
                 </div>
                 <Button
                   variant="ghost"
@@ -135,13 +139,13 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-5 pb-5">
                 {ws.description && (
-                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2 leading-relaxed">
                     {ws.description}
                   </p>
                 )}
-                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <FileText className="h-3.5 w-3.5" />
                   <span>{ws.document_count} documents</span>
                 </div>

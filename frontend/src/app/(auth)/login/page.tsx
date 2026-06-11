@@ -18,24 +18,31 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="p-3 rounded-full bg-primary/10">
-              <Brain className="h-10 w-10 text-primary" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 relative overflow-hidden">
+      {/* Subtle background pattern */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,_rgba(0,0,0,0.03)_1px,_transparent_0)] bg-[size:24px_24px] dark:bg-[radial-gradient(circle_at_1px_1px,_rgba(255,255,255,0.03)_1px,_transparent_0)]" />
+
+      <Card className="w-full max-w-md shadow-lg border-0 ring-1 ring-black/5 dark:ring-white/10 relative z-10">
+        <CardHeader className="text-center pt-10 pb-6">
+          <div className="flex justify-center mb-5">
+            <div className="p-4 rounded-2xl bg-primary/10">
+              <Brain className="h-12 w-12 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl">NexusRAG</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-3xl tracking-tight">NexusRAG</CardTitle>
+          <CardDescription className="text-base mt-2">
             Multi-Workspace AI Knowledge Platform
           </CardDescription>
+          <p className="text-sm text-muted-foreground/70 mt-3">
+            Organize, explore, and chat with your documents using AI
+          </p>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 px-10 pb-10">
           <Button
             onClick={handleGoogleLogin}
-            className="w-full"
+            className="w-full h-11 font-medium shadow-sm"
             size="lg"
+            variant="outline"
           >
             <svg className="mr-2 h-5 w-5" viewBox="0 0 24 24">
               <path

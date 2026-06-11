@@ -23,6 +23,14 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(rag.router, prefix="/api")
 
 
+@app.on_event("startup")
+async def startup_event():
+    from app.services.embedding import get_embedding_model
+    from app.services.rag import ensure_collection
+    get_embedding_model()
+    ensure_collection()
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "NexusRAG"}

@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
     EMBEDDING_DIM: int = 384
 
-    CHUNK_SIZE: int = 512
-    CHUNK_OVERLAP: int = 64
+    CHUNK_SIZE: int = 1024
+    CHUNK_OVERLAP: int = 128
     TOP_K_RESULTS: int = 5
 
     class Config:

@@ -52,33 +52,54 @@ export default function ChatSessionPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col bg-background">
         <Header user={user} />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left sidebar skeleton */}
+          <aside className="w-52 border-r border-border/50 bg-muted/20 flex flex-col">
+            <div className="p-3 space-y-2">
+              <div className="h-8 w-full bg-muted rounded animate-pulse" />
+              <div className="h-8 w-full bg-muted rounded animate-pulse" />
+              <div className="h-8 w-full bg-muted rounded animate-pulse" />
+            </div>
+          </aside>
+          {/* Main chat skeleton */}
+          <main className="flex-1 flex flex-col items-center justify-center">
+            <div className="space-y-3 text-center">
+              <div className="h-6 w-48 bg-muted rounded animate-pulse mx-auto" />
+              <div className="h-4 w-64 bg-muted rounded animate-pulse mx-auto" />
+            </div>
+          </main>
+          {/* Right panel skeleton */}
+          <aside className="w-72 border-l border-border/50 bg-muted/20 flex flex-col">
+            <div className="p-4 space-y-4">
+              <div className="h-10 w-full bg-muted rounded animate-pulse" />
+              <div className="h-20 w-full bg-muted rounded animate-pulse" />
+            </div>
+          </aside>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-background">
       <Header user={user} />
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Sessions Sidebar */}
-        <aside className="w-56 border-r bg-muted/20 flex flex-col">
+        <aside className="w-52 border-r border-border/50 bg-muted/20 flex flex-col">
           <div className="p-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => router.push(`/workspace/${workspaceId}`)}
-              className="w-full justify-start"
+              className="w-full justify-start text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Workspace
             </Button>
           </div>
-          <Separator />
+          <Separator className="opacity-50" />
           <ChatSidebar workspaceId={workspaceId} activeSessionId={sessionId} />
         </aside>
 
@@ -88,10 +109,10 @@ export default function ChatSessionPage() {
         </main>
 
         {/* Document Panel */}
-        <aside className="w-72 border-l bg-muted/20 flex flex-col">
+        <aside className="w-72 border-l border-border/50 bg-muted/20 flex flex-col">
           <ScrollArea className="flex-1 p-4 space-y-6">
             <DocumentManager workspaceId={workspaceId} />
-            <Separator className="my-4" />
+            <Separator className="my-4 opacity-50" />
             <FileSelector workspaceId={workspaceId} />
           </ScrollArea>
         </aside>

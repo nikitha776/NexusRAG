@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from uuid import uuid4
 from datetime import datetime, timezone
 import asyncio
+import logging
 from app.api.deps import get_current_user
 from app.db.supabase_client import get_supabase_admin
 from app.schemas.api import DocumentResponse
@@ -56,9 +57,9 @@ async def upload_documents(
     supabase = get_supabase_admin()
     uploaded = []
 
-    for file in files:
+    async def process_file(file: UploadFile):
         if not file.filename:
-            continue
+            return None
 
         file_content = await file.read()
         file_path = f"{user['id']}/{workspace_id}/{file.filename}"
@@ -88,13 +89,18 @@ async def upload_documents(
             )
         )
 
-        uploaded.append(
-            DocumentResponse(
-                id=doc_id, filename=file.filename,
-                file_type=doc_data["file_type"], file_size=doc_data["file_size"],
-                status="processing", chunk_count=0, created_at=now,
-            )
+        return DocumentResponse(
+            id=doc_id, filename=file.filename,
+            file_type=doc_data["file_type"], file_size=doc_data["file_size"],
+            status="processing", chunk_count=0, created_at=now,
         )
+
+    results = await asyncio.gather(*[process_file(file) for file in files], return_exceptions=True)
+    for r in results:
+        if isinstance(r, Exception):
+            logging.error(f"File upload failed: {r}")
+        elif r is not None:
+            uploaded.append(r)
 
     return uploaded
 
@@ -165,6 +171,9 @@ async def reprocess_document(
     doc = result.data[0]
     supabase.table("documents").update({"status": "processing", "chunk_count": 0}).eq("id", document_id).execute()
     supabase.table("document_chunks").delete().eq("document_id", document_id).execute()
+
+    from app.services.rag import delete_document_vectors
+    await delete_document_vectors(document_id)
 
     file_content = await download_file_from_s3(doc["file_path"])
 
