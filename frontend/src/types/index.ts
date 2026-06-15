@@ -22,6 +22,8 @@ export interface ChatSession {
   title: string;
   created_at: string;
   updated_at: string;
+  pinned?: boolean;
+  isTemporary?: boolean;
 }
 
 export interface Citation {

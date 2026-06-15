@@ -18,10 +18,15 @@ interface AppState {
   selectAllDocs: () => void;
   deselectAllDocs: () => void;
 
+  activeSessionId: string | null;
+  setActiveSessionId: (id: string | null) => void;
+
   chatSessions: ChatSession[];
   setChatSessions: (sessions: ChatSession[]) => void;
   addChatSession: (session: ChatSession) => void;
   removeChatSession: (id: string) => void;
+  updateChatSession: (id: string, updates: Partial<ChatSession>) => void;
+  replaceChatSession: (tempId: string, session: ChatSession) => void;
 
   messages: ChatMessage[];
   setMessages: (messages: ChatMessage[]) => void;
@@ -76,6 +81,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   deselectAllDocs: () => set({ selectedDocIds: new Set() }),
 
+  activeSessionId: null,
+  setActiveSessionId: (id) => set({ activeSessionId: id }),
+
   chatSessions: [],
   setChatSessions: (sessions) => set({ chatSessions: sessions }),
   addChatSession: (session) =>
@@ -83,6 +91,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeChatSession: (id) =>
     set((state) => ({
       chatSessions: state.chatSessions.filter((s) => s.id !== id),
+    })),
+  updateChatSession: (id, updates) =>
+    set((state) => ({
+      chatSessions: state.chatSessions.map((s) =>
+        s.id === id ? { ...s, ...updates } : s
+      ),
+    })),
+  replaceChatSession: (tempId, session) =>
+    set((state) => ({
+      chatSessions: state.chatSessions.map((s) =>
+        s.id === tempId ? session : s
+      ),
     })),
 
   messages: [],

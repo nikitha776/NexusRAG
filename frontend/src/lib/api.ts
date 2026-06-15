@@ -26,10 +26,21 @@ async function fetchAPI(path: string, options: RequestInit = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    const message =
+      err instanceof TypeError && err.message === "Failed to fetch"
+        ? `Cannot reach server at ${API_URL}. Is the backend running?`
+        : err instanceof Error
+        ? err.message
+        : "Network error";
+    throw new Error(message);
+  }
 
   if (res.status === 401) {
     if (typeof window !== "undefined") {
@@ -100,6 +111,10 @@ export const api = {
       fetchAPI(`/api/workspaces/${workspaceId}/documents/${docId}`, {
         method: "DELETE",
       }),
+    reprocess: (workspaceId: string, docId: string) =>
+      fetchAPI(`/api/workspaces/${workspaceId}/documents/${docId}/reprocess`, {
+        method: "POST",
+      }),
   },
 
   chat: {
@@ -118,6 +133,11 @@ export const api = {
       fetchAPI(`/api/workspaces/${workspaceId}/chat/sessions/${sessionId}`, {
         method: "DELETE",
       }),
+    updateSession: (workspaceId: string, sessionId: string, data: { title?: string; pinned?: boolean }) =>
+      fetchAPI(`/api/workspaces/${workspaceId}/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }) as Promise<ChatSession>,
   },
 
   rag: {

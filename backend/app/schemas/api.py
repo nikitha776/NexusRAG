@@ -40,6 +40,12 @@ class ChatSessionResponse(BaseModel):
     title: str
     created_at: str
     updated_at: str
+    pinned: bool = False
+
+
+class ChatSessionUpdate(BaseModel):
+    title: Optional[str] = None
+    pinned: Optional[bool] = None
 
 
 class ChatMessageResponse(BaseModel):
