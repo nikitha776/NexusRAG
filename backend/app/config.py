@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_KEY: str
+    SUPABASE_JWT_SECRET: str = ""
+
+    DATABASE_URL: str
 
     S3_ACCESS_KEY: str
     S3_SECRET_KEY: str

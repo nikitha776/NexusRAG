@@ -1,3 +1,44 @@
+# version: '3.8'
+
+# services:
+#   qdrant:
+#     image: qdrant/qdrant:latest
+#     ports:
+#       - "6333:6333"
+#       - "6334:6334"
+#     volumes:
+#       - qdrant_data:/qdrant/storage
+#     environment:
+#       QDRANT__SERVICE__GRPC_PORT: 6334
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   backend:
+#     image: 985420682353.dkr.ecr.ap-south-1.amazonaws.com/nikitha/nexusrag-backend
+#     ports:
+#       - "8000:8000"
+#     env_file:
+#       - ./backend/.env
+#     environment:
+#       # Override localhost so the backend reaches qdrant inside the compose network
+#       QDRANT_URL: http://qdrant:6333
+#     depends_on:
+#       qdrant:
+#         condition: service_healthy
+
+#   frontend:
+#     image: 985420682353.dkr.ecr.ap-south-1.amazonaws.com/nikitha/nexusrag-frontend
+#     ports:
+#       - "3000:3000"
+#     depends_on:
+#       - backend
+
+# volumes:
+#   qdrant_data:
+
 version: '3.8'
 
 services:

@@ -25,6 +25,7 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
     useAppStore();
   const [uploading, setUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadDocuments = useCallback(async () => {
@@ -32,7 +33,7 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
       const docs = await api.documents.list(workspaceId);
       setDocuments(docs);
     } catch (e) {
-      // Backend may be offline
+      console.error("Failed to load documents:", e);
     }
   }, [workspaceId, setDocuments]);
 
@@ -51,11 +52,16 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
   const handleUpload = async (files: File[]) => {
     if (files.length === 0) return;
     setUploading(true);
+    setUploadError(null);
     try {
       const uploaded = await api.documents.upload(workspaceId, files);
-      addDocuments(uploaded);
+      if (uploaded.length === 0) {
+        setUploadError("Upload returned no documents. Check backend logs.");
+      } else {
+        addDocuments(uploaded);
+      }
     } catch (e) {
-      // Handle error
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -91,7 +97,7 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
       await api.documents.delete(workspaceId, docId);
       removeDocument(docId);
     } catch (e) {
-      // Handle error
+      setUploadError(e instanceof Error ? e.message : "Delete failed");
     }
   };
 
@@ -174,6 +180,14 @@ export function DocumentManager({ workspaceId }: DocumentManagerProps) {
           </div>
         </div>
       </div>
+
+      {uploadError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-red-700">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <p className="text-xs flex-1">{uploadError}</p>
+          <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
 
       {documents.length === 0 ? (
         <div className="text-center py-8">
