@@ -17,6 +17,7 @@ interface AppState {
   toggleDocSelection: (id: string) => void;
   selectAllDocs: () => void;
   deselectAllDocs: () => void;
+  restoreDocSelection: (ids: string[]) => void;
 
   activeSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
@@ -85,6 +86,9 @@ export const useAppStore = create<AppState>((set) => ({
       ),
     })),
   deselectAllDocs: () => set({ selectedDocIds: new Set() }),
+  restoreDocSelection: (ids) => set((state) => ({
+    selectedDocIds: new Set(ids.filter((id) => state.documents.some((doc) => doc.id === id && doc.status === "ready"))),
+  })),
 
   activeSessionId: null,
   setActiveSessionId: (id) => set({ activeSessionId: id }),

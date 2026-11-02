@@ -58,8 +58,16 @@ export function ChatInterface({
     // The first answer is already rendered when the newly saved session is
     // reflected in the URL. Fetch history only when opening another session.
     if (sessionId && createdSession.current?.id !== sessionId) {
+      const hadNoSelection = useAppStore.getState().selectedDocIds.size === 0;
       api.chat.listMessages(workspaceId, sessionId)
-        .then((msgs) => { if (!cancelled) { setMessages(msgs); setError(null); setHistoryResult({ sessionId, reload, failed: false }); } })
+        .then((msgs) => { if (!cancelled) {
+          const store = useAppStore.getState();
+          if (hadNoSelection && store.selectedDocIds.size === 0 && store.activeWorkspace?.id === workspaceId) {
+            const previous = [...msgs].reverse().find((message) => message.selected_doc_ids?.length);
+            if (previous?.selected_doc_ids) store.restoreDocSelection(previous.selected_doc_ids);
+          }
+          setMessages(msgs); setError(null); setHistoryResult({ sessionId, reload, failed: false });
+        } })
         .catch((e) => { if (!cancelled) { setHistoryResult({ sessionId, reload, failed: true }); setError(e instanceof Error ? e.message : "Could not load this conversation."); } });
     }
     return () => { cancelled = true; alive.current = false; };

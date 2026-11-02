@@ -205,3 +205,9 @@ If a ready document loses all of its Qdrant vectors, querying that selected docu
 Use **Search chats** in the dashboard header or a workspace toolbar to search your saved chat titles, questions, and answers. Search matches a word or phrase without regard to case and treats punctuation literally. Results show the workspace, a matching excerpt, and date. Message results open the conversation at the highlighted message. A workspace can narrow search with **Only this workspace**; **Load more results** retrieves another page.
 
 The authenticated `GET /api/chat/search` endpoint scopes both message and title queries to the current workspace owner. It uses the existing Supabase foreign keys, requires no database migration, and makes no LLM calls. Deploy both the backend and frontend updates to use search in production.
+
+## Conversation memory
+
+Follow-ups such as **explain that** and **compare those two** use recent messages from the same chat to resolve their subjects before searching documents and generating an answer. Memory keeps a bounded excerpt of up to six recent question/answer pairs, with more space for the latest exchange. Ambiguous references produce a clarifying question.
+
+Reopening a saved chat restores its available, ready source selections when nothing is already selected. Earlier answers that used documents no longer selected are withheld from memory; answers still rely on the current selected documents as evidence. A new chat starts fresh, and other chats are never included. This update requires both frontend and backend deployment and no database migration.

@@ -113,3 +113,24 @@ it("focuses a matching saved message when opened from search", async () => {
     window.history.replaceState(null, "", "/");
   }
 });
+
+it("restores ready sources when reopening a saved conversation with no current selection", async () => {
+  useAppStore.setState({ activeWorkspace: { id: "w", name: "Research", description: null, document_count: 1, created_at: "", updated_at: "" }, documents: [doc], selectedDocIds: new Set() });
+  vi.mocked(api.chat.listMessages).mockResolvedValue([{ ...response, selected_doc_ids: ["d", "deleted-document"] }]);
+  vi.mocked(api.rag.query).mockResolvedValue({ ...response, id: "followup-answer" });
+  render(<ChatInterface workspaceId="w" sessionId="saved" />);
+  await screen.findByText("An answer");
+  expect([...useAppStore.getState().selectedDocIds]).toEqual(["d"]);
+  send("explain that");
+  await waitFor(() => expect(api.rag.query).toHaveBeenCalledWith("w", expect.objectContaining({ query: "explain that", session_id: "saved", selected_doc_ids: ["d"] })));
+});
+
+it("preserves manual source changes made while conversation history is loading", async () => {
+  useAppStore.setState({ activeWorkspace: { id: "w", name: "Research", description: null, document_count: 2, created_at: "", updated_at: "" }, documents: [doc, { ...doc, id: "other" }], selectedDocIds: new Set() });
+  let resolve!: (messages: ChatMessage[]) => void;
+  vi.mocked(api.chat.listMessages).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+  render(<ChatInterface workspaceId="w" sessionId="saved" />);
+  act(() => useAppStore.getState().toggleDocSelection("other"));
+  await act(async () => resolve([response]));
+  expect([...useAppStore.getState().selectedDocIds]).toEqual(["other"]);
+});

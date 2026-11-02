@@ -50,14 +50,14 @@ def prepare_query(workspace_id, data, user):
 
     history_result = (
         supabase.table("chat_messages")
-        .select("*")
+        .select("role,content,selected_doc_ids,created_at")
         .eq("session_id", str(data.session_id))
         .order("created_at", desc=True)
-        .limit(10)
+        .limit(20)
         .execute()
     )
     history = [
-        {"role": m["role"], "content": m["content"]}
+        {"role": m["role"], "content": m["content"], "selected_doc_ids": m.get("selected_doc_ids")}
         for m in reversed(history_result.data)
     ]
 

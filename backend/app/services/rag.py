@@ -16,6 +16,7 @@ from app.services.chunking import extract_text, chunk_text
 from app.services.llm import generate_response, stream_response
 from app.services.errors import AnswerServiceError, EmptyAnswerError
 from app.services.token_budget import count_tokens, trim_tokens, recent_history
+from app.services.conversation_memory import RESOLVE_SYSTEM, scoped_history, parse_resolution
 from uuid import uuid4, uuid5, NAMESPACE_URL
 import logging
 import threading
@@ -364,16 +365,24 @@ async def prepare_rag(
 
     # Resolve follow-ups before retrieval, not just during answer generation.
     retrieval_query = query
+    resolved_question = query
+    chat_history = scoped_history(chat_history, selected_doc_ids)
     if chat_history:
-        recent = recent_history(chat_history, min(800, max(0, budget - count_tokens(query) - 512)))
+        names = trim_tokens("\n".join(doc_map.get(doc_id, "Document") for doc_id in selected_doc_ids), 240)
+        def resolve_prompt(context):
+            return f"Currently selected documents:\n{names}\n\nConversation:\n{context}\n\nLatest question: {query}"
+        memory_limit = max(0, min(1400, budget - count_tokens(RESOLVE_SYSTEM) - count_tokens(resolve_prompt("")) - 128))
+        recent = recent_history(chat_history, memory_limit)
         try:
-            retrieval_query = await asyncio.to_thread(
+            resolution = await asyncio.to_thread(
                 generate_response,
-                f"Conversation:\n{recent}\n\nLatest question: {query}",
-                "Rewrite the latest question as a standalone document-search question using the conversation. "
-                "Resolve pronouns and implied topics. Do not answer it or add facts. Return only the rewritten question.",
+                resolve_prompt(recent), RESOLVE_SYSTEM,
                 max_tokens=512,
             )
+            resolved_question, clarification = parse_resolution(resolution, query)
+            if clarification:
+                return {"response": clarification, "citations": []}
+            retrieval_query = resolved_question
         except EmptyAnswerError:
             # Rewriting helps retrieval but is not required to answer. Keep the
             # latest question first so embedding truncation cannot remove it.
@@ -405,9 +414,11 @@ Rules:
 8. Always provide a user-visible reply, including for unrelated, nonsensical, or ambiguous questions. For greetings, reply naturally. If the documents cannot support an answer, politely explain that and suggest a relevant question or ask for clarification. Do not invent an answer, cite unrelated passages as evidence, or describe an unsupported question as a system error."""
 
     def make_prompt(context, history):
+        resolved = (f"Resolved follow-up (to interpret the question, not factual evidence): {resolved_question}\n\n"
+                    if resolved_question != query else "")
         return (f"Context from selected documents:\n\n{context}\n\n"
                 f"Previous conversation (for question context only):\n{history}\n\n"
-                f"User question: {query}\n\nProvide a clear, helpful answer based on the context above:")
+                f"User question: {query}\n\n{resolved}Provide a clear, helpful answer based on the context above:")
 
     # Reserve output/message overhead via the configured input limit, then
     # share the remaining context across ranked sources. Never send every
@@ -415,7 +426,7 @@ Rules:
     available = budget - count_tokens(system_prompt) - count_tokens(make_prompt("", "")) - 128
     if available < 128:
         return clarification_prompt(query, "The question leaves too little room for readable document evidence.")
-    history_text = recent_history(chat_history, min(800, max(0, available // 5)))
+    history_text = recent_history(chat_history, min(1100, max(0, available // 4)))
     remaining = max(0, available - count_tokens(history_text))
     context_parts, selected_chunks = [], []
     for index, chunk in enumerate(chunks):
@@ -467,6 +478,8 @@ def recover_empty_answer(prompt: str, system_prompt: str) -> tuple[str, bool]:
 
 async def query_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map) -> dict:
     prepared = await prepare_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map)
+    if "response" in prepared:
+        return prepared
     try:
         text = await asyncio.to_thread(generate_response, prepared["prompt"], prepared["system_prompt"])
     except EmptyAnswerError:
@@ -483,6 +496,9 @@ async def query_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map
 async def stream_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map):
     prepared = await prepare_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map)
     yield {"type": "sources", "citations": prepared["citations"]}
+    if "response" in prepared:
+        yield {"type": "token", "text": prepared["response"]}
+        return
     stream = stream_response(prepared["prompt"], prepared["system_prompt"])
     visible = False
     try:

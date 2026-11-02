@@ -46,10 +46,29 @@ def trim_tokens(text: str, limit: int) -> str:
     return text.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
 
 
+def memory_excerpt(text: str, limit: int) -> str:
+    """Keep the beginning and conclusion when a long turn must be shortened."""
+    if count_tokens(text) <= limit:
+        return text
+    separator = "\n…\n"
+    remaining = max(0, limit - count_tokens(separator))
+    if remaining < 12:
+        return trim_tokens(text, limit)
+    head, tail = remaining * 2 // 3, remaining - remaining * 2 // 3
+    encoding = get_encoding()
+    ending = encoding.decode(encoding.encode(text, disallowed_special=())[-tail:], errors="ignore") if encoding else text.encode("utf-8")[-tail:].decode("utf-8", errors="ignore")
+    return trim_tokens(trim_tokens(text, head) + separator + ending, limit)
+
+
 def recent_history(history: list[dict], limit: int = 800) -> str:
-    """Keep recent turns, sharing the budget so one long answer can't crowd out its question."""
-    selected = history[-6:]
+    """Give the latest question/answer more space while retaining earlier turns."""
+    selected = [m for m in history if m.get("role") in {"user", "assistant"}
+                and isinstance(m.get("content"), str) and m["content"].strip()][-12:]
     if not selected or limit <= 0:
         return ""
-    share = max(0, limit // len(selected) - 8)
-    return trim_tokens("\n".join(f"{m['role']}: {trim_tokens(m['content'], share)}" for m in selected), limit)
+    labels = sum(count_tokens(f"{m['role']}: \n") for m in selected)
+    available = max(0, limit - labels - 12)
+    weights = [3 if index >= len(selected) - 2 else 1 for index in range(len(selected))]
+    total = sum(weights)
+    return trim_tokens("\n".join(f"{m['role']}: {memory_excerpt(m['content'], available * weight // total)}"
+                                  for m, weight in zip(selected, weights)), limit)
