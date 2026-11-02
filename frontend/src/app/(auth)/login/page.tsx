@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BookOpen, Sparkles, FileText, MessageSquare } from "lucide-react";
@@ -9,6 +9,18 @@ export default function LoginPage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Back from Google can restore this page from the browser's cache,
+    // including its previous "Connecting" state, without mounting it again.
+    const resetConnecting = () => setLoading(false);
+    window.addEventListener("pageshow", resetConnecting);
+    window.addEventListener("popstate", resetConnecting);
+    return () => {
+      window.removeEventListener("pageshow", resetConnecting);
+      window.removeEventListener("popstate", resetConnecting);
+    };
+  }, []);
 
   const handleGoogleLogin = async () => {
     if (loading) return;
@@ -21,6 +33,7 @@ export default function LoginPage() {
       if (error) throw error;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sign-in is unavailable. Please retry.");
+    } finally {
       setLoading(false);
     }
   };
