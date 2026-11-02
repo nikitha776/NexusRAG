@@ -199,3 +199,9 @@ The Python Supabase client was updated within version 2 to resolve a WebSocket d
 
 
 If a ready document loses all of its Qdrant vectors, querying that selected document rebuilds its index from the saved Supabase chunks. Recovery validates workspace ownership scope and ready status, checks saved chunk completeness, and uses deterministic vector IDs so repeated recovery does not duplicate points. Incomplete saved chunks produce an explicit reprocessing error. This recovery does not change the original file or widen source selection.
+
+## Conversation search
+
+Use **Search chats** in the dashboard header or a workspace toolbar to search your saved chat titles, questions, and answers. Search matches a word or phrase without regard to case and treats punctuation literally. Results show the workspace, a matching excerpt, and date. Message results open the conversation at the highlighted message. A workspace can narrow search with **Only this workspace**; **Load more results** retrieves another page.
+
+The authenticated `GET /api/chat/search` endpoint scopes both message and title queries to the current workspace owner. It uses the existing Supabase foreign keys, requires no database migration, and makes no LLM calls. Deploy both the backend and frontend updates to use search in production.

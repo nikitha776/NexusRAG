@@ -51,3 +51,19 @@ export interface ChatMessage {
   selected_doc_ids: string[] | null;
   created_at: string;
 }
+
+export interface ChatSearchHit {
+  id: string;
+  match_type: "message" | "title";
+  message_id: string | null;
+  session_id: string;
+  title: string;
+  workspace_id: string;
+  workspace_name: string;
+  role: "user" | "assistant" | null;
+  snippet: string;
+  created_at: string;
+}
+
+export interface ChatSearchCursor { messages: number; titles: number }
+export interface ChatSearchResponse { results: ChatSearchHit[]; next: ChatSearchCursor | null }

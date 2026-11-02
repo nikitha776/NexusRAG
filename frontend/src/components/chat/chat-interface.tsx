@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm";
 import { remarkLineBreaks } from "@/lib/remark-line-breaks";
 import { SourcePreview } from "@/components/chat/source-preview";
 import { remarkCitations } from "@/lib/remark-citations";
+import { focusSearchMessage } from "@/lib/chat-search";
 import type { Citation, ChatMessage, ChatSession } from "@/types";
 
 interface ChatInterfaceProps {
@@ -41,6 +42,7 @@ export function ChatInterface({
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const searchFocus = useRef("");
   const sendingRef = useRef(false);
   const alive = useRef(true);
   const createdSession = useRef<ChatSession | null>(null);
@@ -64,8 +66,18 @@ export function ChatInterface({
   }, [workspaceId, sessionId, reload]);
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, isLoading, streamingText]);
+    const container = scrollRef.current;
+    if (!container) return;
+    const targetId = window.location.hash.slice(1);
+    const target = targetId.startsWith("message-") ? document.getElementById(targetId) : null;
+    const focusKey = `${sessionId}:${targetId}`;
+    if (target && container.contains(target) && searchFocus.current !== focusKey) {
+      searchFocus.current = focusKey;
+      focusSearchMessage(target);
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [messages, isLoading, streamingText, sessionId]);
 
   const handleSend = async () => {
     if (!query.trim() || sendingRef.current || historyLoading || historyFailed) return;
@@ -198,7 +210,7 @@ export function ChatInterface({
         ) : (
           <div className="chat-column space-y-4">
             {messages.map((msg) => (
-              <div key={msg.id} className="group/msg">
+              <div key={msg.id} id={`message-${msg.id}`} tabIndex={-1} className="chat-message-row group/msg">
                 {msg.role === "user" ? (
                   <div className="flex justify-end mb-2">
                     <div className="chat-user-card">

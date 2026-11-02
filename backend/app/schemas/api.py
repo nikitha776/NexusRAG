@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 
 class WorkspaceCreate(BaseModel):
@@ -70,6 +70,29 @@ class ChatMessageResponse(BaseModel):
     citations: Optional[list] = None
     selected_doc_ids: Optional[list] = None
     created_at: str
+
+
+class ChatSearchHit(BaseModel):
+    id: str
+    match_type: Literal["message", "title"]
+    message_id: Optional[str] = None
+    session_id: str
+    title: str
+    workspace_id: str
+    workspace_name: str
+    role: Optional[Literal["user", "assistant"]] = None
+    snippet: str
+    created_at: str
+
+
+class ChatSearchCursor(BaseModel):
+    messages: int
+    titles: int
+
+
+class ChatSearchResponse(BaseModel):
+    results: list[ChatSearchHit]
+    next: Optional[ChatSearchCursor] = None
 
 
 class RAGQueryRequest(BaseModel):

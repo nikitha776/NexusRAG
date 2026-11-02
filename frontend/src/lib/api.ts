@@ -6,6 +6,8 @@ import type {
   ChatMessage,
   Citation,
   DocumentPreview,
+  ChatSearchResponse,
+  ChatSearchCursor,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -145,6 +147,15 @@ export const api = {
   },
 
   chat: {
+    search: (query: string, options: { workspaceId?: string; cursor?: ChatSearchCursor; signal?: AbortSignal } = {}) => {
+      const params = new URLSearchParams({ q: query });
+      if (options.workspaceId) params.set("workspace_id", options.workspaceId);
+      if (options.cursor) {
+        params.set("message_offset", String(options.cursor.messages));
+        params.set("title_offset", String(options.cursor.titles));
+      }
+      return fetchAPI(`/api/chat/search?${params}`, { signal: options.signal }) as Promise<ChatSearchResponse>;
+    },
     listSessions: (workspaceId: string) =>
       fetchAPI(`/api/workspaces/${workspaceId}/chat/sessions`) as Promise<ChatSession[]>,
     createSession: (workspaceId: string, title?: string) =>

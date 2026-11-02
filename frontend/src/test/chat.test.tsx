@@ -99,3 +99,17 @@ describe("chat failure and navigation", () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 });
+
+it("focuses a matching saved message when opened from search", async () => {
+  window.history.replaceState(null, "", "/workspace/w/chat/saved#message-answer");
+  vi.mocked(api.chat.listMessages).mockResolvedValue([response, { ...response, id: "later", content: "Later answer" }]);
+  try {
+    render(<ChatInterface workspaceId="w" sessionId="saved" />);
+    await screen.findByText("An answer");
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("id", "message-answer"));
+    expect(document.activeElement).toHaveClass("chat-search-match");
+    expect(document.getElementById("message-later")).toBeInTheDocument();
+  } finally {
+    window.history.replaceState(null, "", "/");
+  }
+});

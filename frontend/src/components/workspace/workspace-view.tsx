@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, PanelLeft, Files, Settings, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store";
+import { ConversationSearch } from "@/components/chat/conversation-search";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { ChatInterface } from "@/components/chat/chat-interface";
 import { DocumentManager } from "@/components/documents/document-manager";
@@ -84,6 +85,7 @@ export function WorkspaceView({ workspaceId, sessionId = null }: { workspaceId: 
     <header className="workspace-toolbar flex h-20 shrink-0 items-center gap-2 px-4 sm:px-6">
       <Link href="/dashboard" aria-label="Back to workspaces" className="workspace-control rounded-full p-3"><ArrowLeft className="size-4" /></Link>
       <div className="min-w-0 flex-1 px-2"><h1 className="truncate text-sm font-semibold">{workspace.name}</h1><p className="truncate text-xs text-muted-foreground">{workspace.description || "Your documents, connected to your questions"}</p></div>
+      <ConversationSearch workspaceId={workspaceId} />
       <Button className="workspace-control" variant="ghost" size="sm" aria-label="Toggle conversations" aria-expanded={desktop ? showChats : drawer === "chats"} onClick={() => desktop ? setShowChats(!showChats) : setDrawer("chats")}><PanelLeft className="size-4" /><span className="hidden sm:inline">Chats</span></Button>
       <Button className="workspace-control" variant="outline" size="sm" aria-expanded={desktop ? showSources : drawer === "sources"} onClick={() => desktop ? setShowSources(!showSources) : setDrawer("sources")}><Files className="size-4" /> Sources<span className="rounded bg-primary/10 px-1.5 text-primary">{documentCount}</span></Button>
       <Link href="/settings" aria-label="Settings" className="workspace-control p-3"><Settings className="size-4" /></Link>

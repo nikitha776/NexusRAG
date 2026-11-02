@@ -1,5 +1,6 @@
 "use client";
 
+import { ConversationSearch } from "@/components/chat/conversation-search";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { LogOut, BookOpen, Settings } from "lucide-react";
@@ -44,6 +45,7 @@ export function Header({ user }: HeaderProps) {
 
       <div className="flex-1" />
 
+      {user && <div className="mr-2"><ConversationSearch /></div>}
       {user && (
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer">

@@ -283,6 +283,8 @@
 .chat-composer:focus-within { box-shadow: 0 0 0 3px rgb(86 121 146 / 15%); }
 .chat-composer textarea { border: 0; background: transparent; box-shadow: none; outline: none; border-radius: 0; padding: 10px 0; min-height: 44px; max-height: 180px; font-size: 14px; }
 .chat-composer textarea:focus-visible { outline: none; box-shadow: none; }
+.chat-message-row { scroll-margin-block: 24px; }
+.chat-message-row:target, .chat-search-match { border-radius: 24px; outline: 2px solid var(--primary); outline-offset: 6px; }
 .chat-empty-icon { background: var(--glass-panel); border: 1px solid rgb(255 255 255 / 30%); }
 .chat-suggestion { background: var(--glass-panel); border: 1px solid rgb(255 255 255 / 25%); border-radius: 20px; }
 .chat-suggestion:hover { background: var(--glass-card); }
