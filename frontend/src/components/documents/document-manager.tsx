@@ -6,18 +6,16 @@ import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FileText, Trash2, Loader2, RefreshCw, CloudUpload } from "lucide-react";
-import { toast } from "sonner";
+import { DOCUMENT_ACCEPT, useDocumentUpload } from "@/hooks/use-document-upload";
 
 export function DocumentManager({ workspaceId }: { workspaceId: string }) {
-  const { documents, setDocuments, addDocuments, removeDocument, updateDocument } = useAppStore();
-  const [uploading, setUploading] = useState(false);
+  const { documents, setDocuments, removeDocument, updateDocument } = useAppStore();
+  const { upload, uploading, error, setError } = useDocumentUpload(workspaceId);
   const [dragging, setDragging] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [busy, setBusy] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const uploadLock = useRef(false);
   const mounted = useRef(true);
   const hasProcessing = documents.some((d) => d.status === "processing");
 
@@ -35,34 +33,7 @@ export function DocumentManager({ workspaceId }: { workspaceId: string }) {
     if (hasProcessing) void load();
     const interval = hasProcessing ? setInterval(load, 3000) : undefined;
     return () => { cancelled = true; mounted.current = false; clearInterval(interval); };
-  }, [workspaceId, hasProcessing, setDocuments]);
-
-  const upload = async (files: File[]) => {
-    if (!files.length || uploadLock.current) return;
-    const invalid = files.find((file) => !/\.(pdf|docx|txt|md|csv)$/i.test(file.name) || file.size === 0 || file.size > 50 * 1024 * 1024);
-    if (files.length > 10 || invalid) { setError(invalid ? `${invalid.name}: choose a nonempty PDF, DOCX, TXT, MD, or CSV under 50 MB.` : "Choose up to 10 files at a time."); return; }
-    uploadLock.current = true;
-    setUploading(true);
-    setError(null);
-    try {
-      const result = await api.documents.upload(workspaceId, files);
-      if (useAppStore.getState().activeWorkspace?.id === workspaceId) addDocuments(result.documents);
-      if (result.documents.length) toast.success(`${result.documents.length} file(s) uploaded. Processing has started.`);
-      if (result.errors.length) {
-        const message = result.errors.map((item) => `${item.filename}: ${item.error}`).join("\n");
-        toast.error(message);
-        if (mounted.current) setError(message);
-      }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Upload failed. Please retry.";
-      toast.error(message);
-      if (mounted.current) setError(message);
-    } finally {
-      uploadLock.current = false;
-      if (mounted.current) setUploading(false);
-      if (input.current) input.current.value = "";
-    }
-  };
+  }, [workspaceId, hasProcessing, setDocuments, setError]);
 
   const act = async (id: string, action: "delete" | "retry") => {
     if (busy) return;
@@ -84,7 +55,7 @@ export function DocumentManager({ workspaceId }: { workspaceId: string }) {
 
   return <section className="space-y-4" aria-label="Document library">
     <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Document library</h2><span className="rounded-full bg-muted px-2 text-xs">{documents.length}</span></div>
-    <input ref={input} type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.csv" multiple onChange={(e) => void upload(Array.from(e.target.files || []))} />
+    <input ref={input} type="file" className="hidden" accept={DOCUMENT_ACCEPT} multiple onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ""; void upload(files); }} />
     <button type="button" disabled={uploading} onClick={() => input.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); void upload(Array.from(e.dataTransfer.files)); }} className={`w-full rounded-2xl border-2 border-dashed p-5 text-center transition-colors disabled:opacity-60 ${dragging ? "border-primary bg-primary/10" : "border-border hover:border-primary/50 hover:bg-muted/40"}`}>
       {uploading ? <Loader2 className="mx-auto mb-2 size-6 animate-spin" /> : <CloudUpload className="mx-auto mb-2 size-6 text-primary" />}
       <span className="block text-sm font-medium">{uploading ? "Uploading…" : "Drop files or browse"}</span>

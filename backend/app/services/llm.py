@@ -2,7 +2,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 from groq import APIConnectionError, APIStatusError, AuthenticationError, NotFoundError, RateLimitError
 from app.config import get_settings
-from app.services.errors import AnswerServiceError
+from app.services.errors import AnswerServiceError, EmptyAnswerError
 from app.services.token_budget import count_tokens
 
 settings = get_settings()
@@ -12,6 +12,11 @@ _llm = None
 def get_llm() -> ChatGroq:
     global _llm
     if _llm is None:
+        # GPT-OSS spends its completion budget on reasoning as well as text.
+        # Keep short query rewrites from exhausting that budget before answering.
+        reasoning = {"reasoning_effort": "low"} if settings.LLM_MODEL in {
+            "openai/gpt-oss-20b", "openai/gpt-oss-120b",
+        } else {}
         _llm = ChatGroq(
             model=settings.LLM_MODEL,
             api_key=settings.GROQ_API_KEY,
@@ -19,6 +24,7 @@ def get_llm() -> ChatGroq:
             max_tokens=2048,
             timeout=60.0,
             max_retries=1,
+            **reasoning,
         )
     return _llm
 
@@ -62,7 +68,7 @@ def generate_response(prompt: str, system_prompt: str = "", max_tokens: int | No
             if isinstance(block, str) or (isinstance(block, dict) and block.get("type") == "text")
         )
     if not content or not content.strip():
-        raise AnswerServiceError("The AI service returned an empty answer. Please retry.")
+        raise EmptyAnswerError("The AI service returned an empty answer. Please retry.")
     return content
 
 
@@ -78,10 +84,10 @@ async def stream_response(prompt: str, system_prompt: str = ""):
                 content = "".join(b if isinstance(b, str) else b.get("text", "") for b in content
                                   if isinstance(b, str) or isinstance(b, dict) and b.get("type") == "text")
             if content:
-                received = True
+                received = received or bool(content.strip())
                 yield content
         if not received:
-            raise AnswerServiceError("The AI service returned an empty answer. Please retry.")
+            raise EmptyAnswerError("The AI service returned an empty answer. Please retry.")
     except AnswerServiceError:
         raise
     except (APIConnectionError, APIStatusError) as exc:

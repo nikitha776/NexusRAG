@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NexusRAG - AI Knowledge Platform",
+  title: "NexusRAG",
   description: "Intelligent document analysis and knowledge retrieval powered by RAG technology",
 };
 

@@ -73,7 +73,7 @@ export function WorkspaceView({ workspaceId, sessionId = null }: { workspaceId: 
     if (path !== window.location.pathname) window.history.pushState(null, "", path);
   };
   const chats = <ChatSidebar workspaceId={workspaceId} activeSessionId={activeSessionId} onSessionSelect={selectSession} />;
-  const sources = <div className="h-full overflow-y-auto p-4 space-y-6"><DocumentManager workspaceId={workspaceId} /><div className="border-t pt-5"><FileSelector /></div></div>;
+  const sources = <div className="h-full overflow-y-auto p-4 space-y-6"><DocumentManager key={workspaceId} workspaceId={workspaceId} /><div className="border-t pt-5"><FileSelector /></div></div>;
 
   if (!workspace) return <div className="flex min-h-dvh flex-col items-center justify-center gap-4 p-6 text-center">
     {error ? <><p role="alert">{error}</p><Button onClick={() => { setError(null); setRetry((n) => n + 1); }}><RefreshCw className="size-4" /> Retry</Button></> : <p role="status" className="animate-pulse text-muted-foreground">Loading workspace…</p>}
@@ -94,6 +94,7 @@ export function WorkspaceView({ workspaceId, sessionId = null }: { workspaceId: 
         key={`${workspaceId}:${conversationVersion}`}
         workspaceId={workspaceId}
         sessionId={activeSessionId}
+        onDocumentsUploaded={() => { if (desktop) setShowSources(true); else setDrawer("sources"); }}
         onSessionCreated={(session) => {
           setSelection(null);
           useAppStore.getState().addChatSession(session);

@@ -27,12 +27,16 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, [reload, setWorkspaces]);
 
+  const displayName = [user?.user_metadata?.full_name, user?.user_metadata?.name]
+    .find((name): name is string => typeof name === "string" && Boolean(name.trim()))?.trim()
+    || user?.email?.split("@")[0];
+  const firstName = displayName?.split(/\s+/)[0];
   const visible = workspaces.filter((ws) => `${ws.name} ${ws.description || ""}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="workspace-shell welcome-page min-h-dvh"><Header user={user} /><main className="max-w-5xl mx-auto px-5 py-6 sm:px-8 sm:py-9 space-y-6">
     <section className="welcome-card p-6 sm:p-7">
-      <p className="text-xs font-medium text-muted-foreground">Your knowledge, connected</p>
-      <h1 className="mt-2 text-2xl font-medium tracking-tight">Welcome back{user?.user_metadata?.full_name ? `, ${user.user_metadata.full_name.split(" ")[0]}` : ""}</h1>
-      <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">Bring your documents together. Ask questions, compare ideas, and trace answers back to their sources.</p>
+      <p className="text-xs font-medium text-muted-foreground">Your personal knowledge workspace</p>
+      <h1 className="mt-2 text-2xl font-medium tracking-tight break-words">Welcome{firstName ? `, ${firstName}` : ""}</h1>
+      <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">Pick a workspace to continue, or create a new one. Upload your documents, ask questions, and explore answers with sources you can trust.</p>
       {!loading && !error && <p className="mt-5 text-xs text-muted-foreground">{workspaces.length} workspace{workspaces.length === 1 ? "" : "s"} · {workspaces.reduce((sum, ws) => sum + ws.document_count, 0)} documents</p>}
     </section>
     {error && <div role="alert" className="rounded-xl border border-destructive/30 p-4 text-sm flex flex-wrap items-center gap-3"><span className="flex-1">{error}</span><Button variant="outline" onClick={() => { setLoading(true); setReload((n) => n + 1); }}>Retry</Button></div>}

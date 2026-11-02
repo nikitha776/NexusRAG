@@ -21,7 +21,7 @@ vi.mock("next/navigation", async () => {
 });
 vi.mock("next/link", () => ({ default: (props: React.ComponentProps<"a">) => <a {...props} /> }));
 vi.mock("@/lib/api", () => ({ api: {
-  workspaces: { get: vi.fn() }, documents: { list: vi.fn() },
+  workspaces: { get: vi.fn() }, documents: { list: vi.fn(), upload: vi.fn() },
   chat: { listSessions: vi.fn(), listMessages: vi.fn(), createSession: vi.fn() },
   rag: { query: vi.fn(), stream: vi.fn() },
 } }));
@@ -160,4 +160,20 @@ it("loads another conversation and restores the saved chat with browser Back", a
   expect(window.location.pathname).toBe("/workspace/w/chat/saved");
   expect(screen.queryByText("Earlier answer")).not.toBeInTheDocument();
   expect(api.workspaces.get).toHaveBeenCalledTimes(1);
+});
+
+
+it("uploads from the composer, preserves the draft, updates the count, and opens Sources", async () => {
+  vi.mocked(api.documents.upload).mockResolvedValue({ documents: [{ ...doc, id: "new", status: "processing" }], errors: [] });
+  render(<WorkspaceView workspaceId="w" />);
+  const composer = await screen.findByRole("textbox", { name: "Your question" });
+  fireEvent.change(composer, { target: { value: "Keep this draft" } });
+  expect(screen.queryByText("Document library")).not.toBeInTheDocument();
+  const file = new File(["Evidence"], "new.txt", { type: "text/plain" });
+  fireEvent.change(screen.getByLabelText("Choose documents to upload"), { target: { files: [file] } });
+  await screen.findByText("Document library");
+  expect(screen.getByRole("button", { name: "Sources 2" })).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Your question" })).toBe(composer);
+  expect(composer).toHaveValue("Keep this draft");
+  expect(api.chat.createSession).not.toHaveBeenCalled();
 });

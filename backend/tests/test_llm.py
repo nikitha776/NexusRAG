@@ -68,6 +68,17 @@ class AnswerServiceTests(unittest.TestCase):
             self.assertEqual(constructor.call_args.kwargs["timeout"], 60.0)
             self.assertEqual(constructor.call_args.kwargs["max_retries"], 1)
 
+    def test_gpt_oss_uses_low_reasoning_without_unsupported_reasoning_format(self):
+        for model in ("openai/gpt-oss-20b", "openai/gpt-oss-120b", "other-model"):
+            settings = SimpleNamespace(LLM_MODEL=model, GROQ_API_KEY="test-key")
+            with patch.object(llm, "settings", settings), patch.object(llm, "_llm", None), patch.object(llm, "ChatGroq") as constructor:
+                llm.get_llm()
+            if model.startswith("openai/gpt-oss"):
+                self.assertEqual(constructor.call_args.kwargs["reasoning_effort"], "low")
+            else:
+                self.assertNotIn("reasoning_effort", constructor.call_args.kwargs)
+            self.assertNotIn("reasoning_format", constructor.call_args.kwargs)
+
 
 class StreamingAnswerTests(unittest.IsolatedAsyncioTestCase):
     async def test_streaming_reports_specific_provider_errors_and_closes_stream(self):

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
+import { ChatUploadButton } from "@/components/documents/chat-upload-button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Sparkles, Copy, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -17,12 +18,14 @@ interface ChatInterfaceProps {
   workspaceId: string;
   sessionId: string | null;
   onSessionCreated?: (session: ChatSession) => void;
+  onDocumentsUploaded?: () => void;
 }
 
 export function ChatInterface({
   workspaceId,
   sessionId,
   onSessionCreated,
+  onDocumentsUploaded,
 }: ChatInterfaceProps) {
   const { selectedDocIds, documents } = useAppStore();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -285,7 +288,8 @@ export function ChatInterface({
       </div>}
       {/* Input area */}
       <div className="chat-composer-wrap shrink-0">
-        <div className="chat-composer">
+        <div className="chat-composer relative">
+          <ChatUploadButton workspaceId={workspaceId} disabled={isLoading} onUploaded={onDocumentsUploaded} />
           <div className="flex-1 relative">
             <Textarea
               aria-label="Your question"
