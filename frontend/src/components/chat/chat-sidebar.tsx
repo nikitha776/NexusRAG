@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ import {
 interface ChatSidebarProps {
   workspaceId: string;
   activeSessionId: string | null;
-  onSessionSelect?: (sessionId: string) => void;
+  onSessionSelect?: (sessionId: string | null) => void;
 }
 
 export function ChatSidebar({
@@ -38,7 +39,6 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const {
     chatSessions,
-    setChatSessions,
     removeChatSession,
     updateChatSession,
   } = useAppStore();
@@ -46,19 +46,6 @@ export function ChatSidebar({
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const editInputRef = useRef<HTMLInputElement>(null);
-
-  const loadSessions = async () => {
-    try {
-      const sessions = await api.chat.listSessions(workspaceId);
-      setChatSessions(sessions);
-    } catch {
-      // Backend may be offline
-    }
-  };
-
-  useEffect(() => {
-    loadSessions();
-  }, [workspaceId]);
 
   useEffect(() => {
     if (editingSessionId && editInputRef.current) {
@@ -68,7 +55,7 @@ export function ChatSidebar({
   }, [editingSessionId]);
 
   const handleNewChat = () => {
-    onSessionSelect?.("__new__");
+    onSessionSelect?.(null);
   };
 
   const handleTogglePin = async (
@@ -83,6 +70,7 @@ export function ChatSidebar({
       });
     } catch {
       updateChatSession(sessionId, { pinned: currentPinned });
+      toast.error("Could not update the pin. Please retry.");
     }
   };
 
@@ -107,6 +95,7 @@ export function ChatSidebar({
         });
       } catch {
         updateChatSession(sessionId, { title: session.title });
+        toast.error("Could not rename this conversation.");
       }
     },
     [editTitle, chatSessions, workspaceId, updateChatSession],
@@ -119,17 +108,12 @@ export function ChatSidebar({
 
   const handleDeleteSession = async (sessionId: string) => {
     if (!confirm("Delete this chat session?")) return;
-    const isTemp = chatSessions.find((s) => s.id === sessionId)?.isTemporary;
-    removeChatSession(sessionId);
-    if (activeSessionId === sessionId) {
-      onSessionSelect?.(null as unknown as string);
-    }
-    if (!isTemp) {
-      try {
-        await api.chat.deleteSession(workspaceId, sessionId);
-      } catch {
-        loadSessions();
-      }
+    try {
+      await api.chat.deleteSession(workspaceId, sessionId);
+      removeChatSession(sessionId);
+      if (activeSessionId === sessionId) onSessionSelect?.(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete this conversation.");
     }
   };
 
@@ -143,7 +127,7 @@ export function ChatSidebar({
     <div className="flex flex-col h-full">
       {/* Home Button */}
       <div className="p-2">
-        <Link href="/">
+        <Link href="/dashboard">
           <Button
             variant="ghost"
             size="sm"
@@ -170,11 +154,12 @@ export function ChatSidebar({
 
       {/* Sessions List */}
       <ScrollArea className="flex-1">
-        <div className="px-2 pb-2 space-y-1">
+        <div className="px-2 pb-2 space-y-0.5">
+          {sortedSessions.length === 0 && <p className="p-4 text-xs text-muted-foreground">Your conversations will appear here after you ask a question.</p>}
           {sortedSessions.map((session) => (
             <div
               key={session.id}
-              className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-200 ${
+              className={`group relative flex items-center gap-2.5 px-3 py-1.5 rounded-xl cursor-pointer transition-all duration-200 ${
                 activeSessionId === session.id
                   ? "bg-primary/10 text-primary shadow-sm"
                   : "hover:bg-muted/60 text-foreground"
@@ -184,13 +169,11 @@ export function ChatSidebar({
                   onSessionSelect?.(session.id);
                 }
               }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSessionSelect?.(session.id); } }}
               title={session.title}
             >
-              {/* Active indicator */}
-              {activeSessionId === session.id && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-full" />
-              )}
-
               <div className={`p-1.5 rounded-lg ${
                 activeSessionId === session.id
                   ? "bg-primary/20"
@@ -220,7 +203,6 @@ export function ChatSidebar({
                         cancelRename();
                       }
                     }}
-                    onBlur={() => commitRename(session.id)}
                     onClick={(e) => e.stopPropagation()}
                     className="text-xs truncate flex-1 min-w-0 bg-transparent border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary/20"
                   />
@@ -255,7 +237,8 @@ export function ChatSidebar({
               {editingSessionId !== session.id && (
                 <DropdownMenu>
                   <DropdownMenuTrigger
-                    className="h-7 w-7 inline-flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted focus:outline-none flex-shrink-0"
+                    aria-label={`Actions for ${session.title}`}
+                    className="h-7 w-7 inline-flex items-center justify-center rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-muted focus:outline-none flex-shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />

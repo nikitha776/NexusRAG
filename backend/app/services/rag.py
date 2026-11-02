@@ -1,3 +1,4 @@
+import asyncio
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -7,29 +8,41 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
     MatchAny,
+    PayloadSchemaType,
 )
 from app.config import get_settings
 from app.services.embedding import generate_embedding, generate_embeddings
 from app.services.chunking import extract_text, chunk_text
-from app.services.llm import generate_response
-from uuid import uuid4
+from app.services.llm import generate_response, stream_response
+from app.services.errors import AnswerServiceError
+from app.services.token_budget import count_tokens, trim_tokens, recent_history
+from uuid import uuid4, uuid5, NAMESPACE_URL
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _qdrant_client = None
+_index_recovery_lock = threading.Lock()
+_prepared_client = None
+_prepared_collection = None
+_document_processing_lock = asyncio.Semaphore(1)
 
 
 def get_qdrant_client() -> QdrantClient:
     global _qdrant_client
     if _qdrant_client is None:
-        _qdrant_client = QdrantClient(url=settings.QDRANT_URL)
+        _qdrant_client = QdrantClient(url=settings.QDRANT_URL,
+            api_key=settings.QDRANT_API_KEY or None, timeout=settings.QDRANT_TIMEOUT)
     return _qdrant_client
 
 
 def ensure_collection():
+    global _prepared_client, _prepared_collection
     client = get_qdrant_client()
+    if _prepared_client is client and _prepared_collection == settings.QDRANT_COLLECTION:
+        return
     collections = client.get_collections().collections
     names = [c.name for c in collections]
     if settings.QDRANT_COLLECTION not in names:
@@ -41,6 +54,10 @@ def ensure_collection():
                 distance=Distance.COSINE,
             ),
         )
+    # Qdrant Cloud's strict filters require indexes on scoped payload fields.
+    for field in ("workspace_id", "document_id", "embedding_profile"):
+        client.create_payload_index(settings.QDRANT_COLLECTION, field, PayloadSchemaType.KEYWORD, wait=True)
+    _prepared_client, _prepared_collection = client, settings.QDRANT_COLLECTION
 
 
 def upsert_chunks(
@@ -60,7 +77,7 @@ def upsert_chunks(
 
     points = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        point_id = str(uuid4())
+        point_id = str(uuid5(NAMESPACE_URL, f"nexusrag:{settings.EMBEDDING_PROFILE}:{workspace_id}:{document_id}:{i}"))
         points.append(
             PointStruct(
                 id=point_id,
@@ -69,6 +86,7 @@ def upsert_chunks(
                     "document_id": document_id,
                     "workspace_id": workspace_id,
                     "chunk_index": i,
+                    "embedding_profile": settings.EMBEDDING_PROFILE,
                     "content": chunk,
                 },
             )
@@ -88,23 +106,72 @@ def upsert_chunks(
     return len(points)
 
 
+def restore_missing_document_vectors(workspace_id: str, selected_doc_ids: list[str]) -> None:
+    """Restore a lost index from saved chunks, only for selected ready documents."""
+    from app.db.supabase_client import get_supabase_admin
+
+    client = get_qdrant_client()
+    ensure_collection()
+    for document_id in dict.fromkeys(selected_doc_ids):
+        scope = Filter(must=[
+            FieldCondition(key="workspace_id", match=MatchValue(value=workspace_id)),
+            FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+            FieldCondition(key="embedding_profile", match=MatchValue(value=settings.EMBEDDING_PROFILE)),
+        ])
+        if client.count(settings.QDRANT_COLLECTION, count_filter=scope, exact=True).count:
+            continue
+        # Serialize recoveries in this process; deterministic point IDs also make
+        # repeated recovery across API workers idempotent.
+        with _index_recovery_lock:
+            if client.count(settings.QDRANT_COLLECTION, count_filter=scope, exact=True).count:
+                continue
+            db = get_supabase_admin()
+            documents = (db.table("documents").select("id,chunk_count")
+                .eq("id", document_id).eq("workspace_id", workspace_id)
+                .eq("status", "ready").execute().data)
+            if not documents:
+                continue
+            expected = documents[0].get("chunk_count", 0)
+            chunks = []
+            offset = 0
+            while True:
+                batch = (db.table("document_chunks").select("chunk_index,content")
+                    .eq("document_id", document_id).order("chunk_index")
+                    .range(offset, offset + 499).execute().data)
+                chunks.extend(batch)
+                if len(batch) < 500:
+                    break
+                offset += len(batch)
+            if (not chunks or len(chunks) != expected or
+                    [chunk["chunk_index"] for chunk in chunks] != list(range(expected))):
+                raise RuntimeError("The selected document's search index is incomplete. Retry processing it in Sources.")
+            upsert_chunks(document_id, workspace_id, [chunk["content"] for chunk in chunks])
+            logger.info("Restored missing search vectors for document %s (%s chunks)", document_id, len(chunks))
+
+
 def search_chunks(
     query: str,
     workspace_id: str,
     selected_doc_ids: list[str],
     top_k: int = None,
 ) -> list[dict]:
+    if not selected_doc_ids:
+        return []
     client = get_qdrant_client()
     top_k = top_k or settings.TOP_K_RESULTS
 
     try:
+        restore_missing_document_vectors(workspace_id, selected_doc_ids)
         query_embedding = generate_embedding(query)
         logger.info(f"Generated query embedding, dim={len(query_embedding)}")
+    except RuntimeError:
+        raise
     except Exception as e:
-        logger.error(f"Failed to generate query embedding: {e}", exc_info=True)
-        return []
+        logger.error(f"Failed to prepare document search: {e}", exc_info=True)
+        raise RuntimeError("Document search is temporarily unavailable. Please retry.") from e
 
     must_conditions = [
+        FieldCondition(key="embedding_profile", match=MatchValue(value=settings.EMBEDDING_PROFILE)),
         FieldCondition(
             key="workspace_id",
             match=MatchValue(value=workspace_id),
@@ -135,39 +202,7 @@ def search_chunks(
         )
     except Exception as e:
         logger.error(f"Qdrant search failed: {e}", exc_info=True)
-        return []
-
-    if not results:
-        logger.warning(
-            f"Qdrant returned 0 results. Trying without document filter..."
-        )
-        try:
-            fallback_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="workspace_id",
-                        match=MatchValue(value=workspace_id),
-                    ),
-                ]
-            )
-            fallback_results = client.search(
-                collection_name=settings.QDRANT_COLLECTION,
-                query_vector=query_embedding,
-                query_filter=fallback_filter,
-                limit=top_k,
-                with_payload=True,
-            )
-            logger.info(
-                f"Fallback search (no doc filter) returned {len(fallback_results)} results"
-            )
-            if fallback_results:
-                for hit in fallback_results[:3]:
-                    logger.info(
-                        f"  Fallback hit: doc_id={hit.payload.get('document_id')}, "
-                        f"score={hit.score:.4f}"
-                    )
-        except Exception as e:
-            logger.error(f"Fallback search also failed: {e}", exc_info=True)
+        raise RuntimeError("Document search is temporarily unavailable. Please retry.") from e
 
     return [
         {
@@ -180,64 +215,10 @@ def search_chunks(
     ]
 
 
-def search_chunks_from_supabase(
-    workspace_id: str,
-    selected_doc_ids: list[str],
-) -> list[dict]:
-    """Fallback: fetch chunks directly from Supabase when Qdrant has nothing."""
-    from app.db.supabase_client import get_supabase_admin
-
-    supabase = get_supabase_admin()
-    query = (
-        supabase.table("document_chunks")
-        .select("id, document_id, chunk_index, content")
-        .limit(10)
-    )
-
-    if selected_doc_ids:
-        # Filter by document_ids via a join-like approach
-        # First get document IDs that belong to this workspace
-        docs = (
-            supabase.table("documents")
-            .select("id")
-            .eq("workspace_id", workspace_id)
-            .in_("id", selected_doc_ids)
-            .eq("status", "ready")
-            .execute()
-        )
-        valid_ids = [d["id"] for d in docs.data]
-        if not valid_ids:
-            return []
-        query = query.in_("document_id", valid_ids)
-    else:
-        docs = (
-            supabase.table("documents")
-            .select("id")
-            .eq("workspace_id", workspace_id)
-            .eq("status", "ready")
-            .execute()
-        )
-        valid_ids = [d["id"] for d in docs.data]
-        if not valid_ids:
-            return []
-        query = query.in_("document_id", valid_ids)
-
-    result = query.execute()
-    logger.info(f"Supabase fallback returned {len(result.data)} chunks")
-
-    return [
-        {
-            "content": row["content"],
-            "document_id": row["document_id"],
-            "chunk_index": row.get("chunk_index", 0),
-            "score": 0.5,  # No real similarity score from Supabase
-        }
-        for row in result.data
-    ]
-
-
 def delete_document_chunks(document_id: str):
     client = get_qdrant_client()
+    if not client.collection_exists(settings.QDRANT_COLLECTION):
+        return
     client.delete(
         collection_name=settings.QDRANT_COLLECTION,
         points_selector=Filter(
@@ -252,6 +233,12 @@ def delete_document_chunks(document_id: str):
 
 
 async def process_document_background(document_id: str, file_content: bytes, filename: str, workspace_id: str):
+    # A free instance should not parse and embed multiple PDFs concurrently.
+    async with _document_processing_lock:
+        await _process_document_background(document_id, file_content, filename, workspace_id)
+
+
+async def _process_document_background(document_id: str, file_content: bytes, filename: str, workspace_id: str):
     import asyncio
     import time
     from uuid import uuid4
@@ -312,6 +299,7 @@ async def process_document_background(document_id: str, file_content: bytes, fil
         supabase.table("documents").update({
             "status": "ready",
             "chunk_count": len(chunks),
+            "error_message": None,
         }).eq("id", document_id).execute()
 
         logger.info(
@@ -324,7 +312,7 @@ async def process_document_background(document_id: str, file_content: bytes, fil
         try:
             supabase.table("documents").update({
                 "status": "error",
-                "error_message": str(e)[:500],
+                "error_message": str(e)[:500] if isinstance(e, ValueError) else "Processing failed. Check that this file contains readable text, then retry.",
             }).eq("id", document_id).execute()
         except Exception:
             logger.error(f"Failed to update error status for {document_id}")
@@ -341,10 +329,10 @@ async def process_document_background(document_id: str, file_content: bytes, fil
 
 
 async def delete_document_vectors(document_id: str):
-    delete_document_chunks(document_id)
+    await asyncio.to_thread(delete_document_chunks, document_id)
 
 
-async def query_rag(
+async def prepare_rag(
     query: str,
     workspace_id: str,
     selected_doc_ids: list[str],
@@ -356,44 +344,37 @@ async def query_rag(
         f"workspace={workspace_id} | docs={selected_doc_ids}"
     )
 
+    budget = settings.LLM_INPUT_TOKEN_BUDGET
+    if count_tokens(query) > budget - 1024:
+        raise AnswerServiceError("This question is too long to leave room for document context. Shorten it and try again.")
+
+    # Resolve follow-ups before retrieval, not just during answer generation.
+    retrieval_query = query
+    if chat_history:
+        recent = recent_history(chat_history, min(800, max(0, budget - count_tokens(query) - 512)))
+        retrieval_query = await asyncio.to_thread(
+            generate_response,
+            f"Conversation:\n{recent}\n\nLatest question: {query}",
+            "Rewrite the latest question as a standalone document-search question using the conversation. "
+            "Resolve pronouns and implied topics. Do not answer it or add facts. Return only the rewritten question.",
+            max_tokens=256,
+        )
+
     # Step 1: Search Qdrant
-    chunks = search_chunks(
-        query=query,
+    chunks = await asyncio.to_thread(search_chunks,
+        query=retrieval_query,
         workspace_id=workspace_id,
         selected_doc_ids=selected_doc_ids,
     )
 
-    # Step 2: Fallback to Supabase if Qdrant returned nothing
     if not chunks:
-        logger.warning("[RAG] Qdrant returned 0 chunks. Trying Supabase fallback...")
-        chunks = search_chunks_from_supabase(
-            workspace_id=workspace_id,
-            selected_doc_ids=selected_doc_ids,
-        )
-
-    if not chunks:
-        logger.warning("[RAG] Both Qdrant and Supabase returned 0 chunks.")
+        logger.warning("[RAG] No matching chunks in the selected documents.")
         return {
             "response": "I couldn't find relevant information in the selected documents for your query. Try selecting different documents or rephrasing your question.",
             "citations": [],
         }
 
     logger.info(f"[RAG] Using {len(chunks)} chunks for context")
-
-    # Step 3: Build context
-    context_parts = []
-    for i, chunk in enumerate(chunks):
-        doc_name = doc_map.get(chunk["document_id"], "Unknown Document")
-        context_parts.append(
-            f"[Source {i+1}: {doc_name}]\n{chunk['content']}"
-        )
-    context = "\n\n---\n\n".join(context_parts)
-
-    history_text = ""
-    if chat_history:
-        for msg in chat_history[-6:]:
-            role = msg["role"].capitalize()
-            history_text += f"{role}: {msg['content']}\n"
 
     system_prompt = """You are a helpful AI assistant for NexusRAG. You answer questions based ONLY on the provided context from the user's documents.
 
@@ -402,42 +383,76 @@ Rules:
 2. When you use information from a source, reference it naturally (e.g., "According to [Source 1]...").
 3. Be concise and accurate.
 4. If multiple sources discuss the topic, synthesize the information.
-5. Do not make up information not present in the context."""
+5. Do not make up information not present in the context.
+6. Use previous conversation only to understand the question, not as evidence. Ground every factual answer in the current selected-document context."""
 
-    prompt = f"""Context from selected documents:
+    def make_prompt(context, history):
+        return (f"Context from selected documents:\n\n{context}\n\n"
+                f"Previous conversation (for question context only):\n{history}\n\n"
+                f"User question: {query}\n\nProvide a clear, helpful answer based on the context above:")
 
-{context}
+    # Reserve output/message overhead via the configured input limit, then
+    # share the remaining context across ranked sources. Never send every
+    # 1,024-word chunk unbounded, and never silently truncate the question.
+    available = budget - count_tokens(system_prompt) - count_tokens(make_prompt("", "")) - 128
+    history_text = recent_history(chat_history, min(800, max(0, available // 5)))
+    remaining = max(0, available - count_tokens(history_text))
+    context_parts, selected_chunks = [], []
+    for index, chunk in enumerate(chunks):
+        source_number = len(selected_chunks) + 1
+        name = trim_tokens(doc_map.get(chunk["document_id"], "Unknown Document"), 100)
+        header = f"[Source {source_number}: {name}]\n"
+        share = remaining // (len(chunks) - index)
+        excerpt = trim_tokens(chunk["content"], max(0, share - count_tokens(header) - 16)).strip()
+        if not excerpt:
+            continue
+        part = header + excerpt
+        context_parts.append(part)
+        selected_chunks.append({**chunk, "content": excerpt})
+        remaining -= count_tokens(part) + 8
+    if not selected_chunks:
+        raise AnswerServiceError("This question leaves too little room for document context. Shorten it and try again.")
+    chunks = selected_chunks
+    prompt = make_prompt("\n\n---\n\n".join(context_parts), history_text)
+    logger.info("Prepared bounded answer context: %s input tokens, %s passages", count_tokens(prompt) + count_tokens(system_prompt), len(chunks))
 
-{f'Previous conversation:{chr(10)}{history_text}' if history_text else ''}
+    citations = [
+        {
+            "source_number": i + 1,
+            "chunk_index": chunk.get("chunk_index"),
+            "document_id": chunk["document_id"],
+            "filename": doc_map.get(chunk["document_id"], "Unknown"),
+            "chunk_content": chunk["content"],
+            "score": round(chunk["score"], 4),
+        }
+        for i, chunk in enumerate(chunks)
+    ]
 
-User question: {query}
+    return {"prompt": prompt, "system_prompt": system_prompt, "citations": citations}
 
-Provide a clear, helpful answer based on the context above:"""
 
+async def query_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map) -> dict:
+    prepared = await prepare_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map)
+    if "response" in prepared:
+        return prepared
     try:
-        response_text = generate_response(prompt, system_prompt)
-        logger.info(f"[RAG] LLM response generated ({len(response_text)} chars)")
-    except Exception as e:
-        logger.error(f"[RAG] LLM generation failed: {e}", exc_info=True)
-        response_text = "I found relevant information in your documents but encountered an error generating the response. Please try again."
+        text = await asyncio.to_thread(generate_response, prepared["prompt"], prepared["system_prompt"])
+    except AnswerServiceError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("The answer service is temporarily unavailable. Please retry.") from exc
+    return {"response": text, "citations": prepared["citations"]}
 
-    # Step 4: Build citations
-    citations = []
-    seen_docs = set()
-    for chunk in chunks:
-        doc_id = chunk["document_id"]
-        if doc_id not in seen_docs:
-            seen_docs.add(doc_id)
-            citations.append(
-                {
-                    "document_id": doc_id,
-                    "filename": doc_map.get(doc_id, "Unknown"),
-                    "chunk_content": chunk["content"][:200],
-                    "score": round(chunk["score"], 4),
-                }
-            )
 
-    return {
-        "response": response_text,
-        "citations": citations,
-    }
+async def stream_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map):
+    prepared = await prepare_rag(query, workspace_id, selected_doc_ids, chat_history, doc_map)
+    yield {"type": "sources", "citations": prepared["citations"]}
+    if "response" in prepared:
+        yield {"type": "token", "text": prepared["response"]}
+        return
+    stream = stream_response(prepared["prompt"], prepared["system_prompt"])
+    try:
+        async for text in stream:
+            yield {"type": "token", "text": text}
+    finally:
+        await stream.aclose()

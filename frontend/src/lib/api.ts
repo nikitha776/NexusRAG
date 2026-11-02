@@ -4,11 +4,13 @@ import type {
   Document,
   ChatSession,
   ChatMessage,
+  Citation,
+  DocumentPreview,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-async function fetchAPI(path: string, options: RequestInit = {}) {
+async function fetchAPI(path: string, options: RequestInit = {}, raw = false) {
   const supabase = createClient();
   const {
     data: { session },
@@ -33,6 +35,7 @@ async function fetchAPI(path: string, options: RequestInit = {}) {
       headers,
     });
   } catch (err) {
+    if (options.signal?.aborted) throw err;
     const message =
       err instanceof TypeError && err.message === "Failed to fetch"
         ? `Cannot reach server at ${API_URL}. Is the backend running?`
@@ -44,6 +47,8 @@ async function fetchAPI(path: string, options: RequestInit = {}) {
 
   if (res.status === 401) {
     if (typeof window !== "undefined") {
+      // Clear the entire in-memory workspace state when authentication expires.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = "/login";
     }
     throw new Error("Session expired. Please sign in again.");
@@ -51,10 +56,46 @@ async function fetchAPI(path: string, options: RequestInit = {}) {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail || `HTTP ${res.status}`);
+    const detail = error.detail;
+    throw new Error(typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item: { msg?: string }) => item.msg || "Invalid input").join("; ") : `Request failed (${res.status})`);
   }
 
-  return res.json();
+  return raw ? res : res.json();
+}
+
+export type AnswerEvent =
+  | { type: "token"; text: string }
+  | { type: "sources"; citations: Citation[] }
+  | { type: "done"; message: ChatMessage }
+  | { type: "error"; detail: string };
+
+export async function readAnswerStream(response: Response, onEvent: (event: AnswerEvent) => void) {
+  if (!response.body) throw new Error("Streaming is unavailable. Please retry.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", complete = false;
+  const parse = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as AnswerEvent;
+    if (event.type === "error") throw new Error(event.detail);
+    if (event.type === "done") complete = true;
+    onEvent(event);
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      lines.forEach(parse);
+      if (done) break;
+    }
+    parse(buffer);
+    if (!complete) throw new Error("The connection ended before the answer was saved. Please retry.");
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 export const api = {
@@ -76,34 +117,20 @@ export const api = {
   },
 
   documents: {
+    file: async (workspaceId: string, docId: string, signal?: AbortSignal) => {
+      const response = await fetchAPI(`/api/workspaces/${workspaceId}/documents/${docId}/file`, { signal }, true) as Response;
+      return new Uint8Array(await response.arrayBuffer());
+    },
+    preview: (workspaceId: string, docId: string) =>
+      fetchAPI(`/api/workspaces/${workspaceId}/documents/${docId}/preview`) as Promise<DocumentPreview>,
     list: (workspaceId: string) =>
       fetchAPI(`/api/workspaces/${workspaceId}/documents/`) as Promise<Document[]>,
     upload: async (workspaceId: string, files: File[]) => {
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
       const formData = new FormData();
       files.forEach((file) => formData.append("files", file));
-
-      const res = await fetch(
-        `${API_URL}/api/workspaces/${workspaceId}/documents/`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session?.access_token}`,
-          },
-          body: formData,
-        }
-      );
-
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: "Upload failed" }));
-        throw new Error(error.detail || `HTTP ${res.status}`);
-      }
-
-      return res.json() as Promise<Document[]>;
+      return fetchAPI(`/api/workspaces/${workspaceId}/documents/`, {
+        method: "POST", body: formData,
+      }) as Promise<{ documents: Document[]; errors: { filename: string; error: string }[] }>;
     },
     get: (workspaceId: string, docId: string) =>
       fetchAPI(`/api/workspaces/${workspaceId}/documents/${docId}`) as Promise<Document>,
@@ -141,6 +168,17 @@ export const api = {
   },
 
   rag: {
+    stream: async (
+      workspaceId: string,
+      data: { query: string; session_id: string; selected_doc_ids: string[] },
+      onEvent: (event: AnswerEvent) => void,
+      signal: AbortSignal,
+    ) => {
+      const response = await fetchAPI(`/api/workspaces/${workspaceId}/rag/stream`, {
+        method: "POST", body: JSON.stringify(data), signal,
+      }, true) as Response;
+      await readAnswerStream(response, onEvent);
+    },
     query: (
       workspaceId: string,
       data: { query: string; session_id: string; selected_doc_ids: string[] }

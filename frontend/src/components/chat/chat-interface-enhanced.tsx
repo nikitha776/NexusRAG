@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Send,
   Plus,
-  RotateCcw,
   Copy,
   ThumbsUp,
   ThumbsDown,
@@ -15,8 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge-enhanced";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import type { ChatMessage, Citation } from "@/types";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import type { ChatMessage } from "@/types";
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
@@ -120,7 +119,7 @@ export function ChatInterface({
                         }}
                         className="p-3 rounded-lg border border-border/50 hover:bg-muted/50 text-left transition-colors text-sm text-foreground hover:text-foreground"
                       >
-                        "{prompt}"
+                        &ldquo;{prompt}&rdquo;
                       </button>
                     ))}
                   </div>

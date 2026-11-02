@@ -137,10 +137,13 @@ async def delete_workspace(workspace_id: str, user: dict = Depends(get_current_u
 
     docs = (
         supabase.table("documents")
-        .select("id,file_path")
+        .select("id,file_path,status")
         .eq("workspace_id", workspace_id)
         .execute()
     )
+
+    if any(doc["status"] == "processing" for doc in docs.data):
+        raise HTTPException(status_code=409, detail="Wait for documents to finish processing before deleting this workspace.")
 
     from app.services.rag import delete_document_vectors
     from app.services.storage import delete_file_from_s3
@@ -148,12 +151,12 @@ async def delete_workspace(workspace_id: str, user: dict = Depends(get_current_u
     for doc in docs.data:
         try:
             await delete_document_vectors(doc["id"])
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not finish cleanup. Please retry deletion.") from exc
         try:
             await delete_file_from_s3(doc["file_path"])
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not finish cleanup. Please retry deletion.") from exc
         supabase.table("document_chunks").delete().eq("document_id", doc["id"]).execute()
 
     sessions = (

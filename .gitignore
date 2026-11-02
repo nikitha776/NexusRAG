@@ -22,8 +22,8 @@ frontend/.env.production.local
 # =====================
 # FASTAPI / PYTHON
 # =====================
-backend/__pycache__/
-backend/*.py[cod]
+backend/**/__pycache__/
+backend/**/*.py[cod]
 backend/*$py.class
 
 # Virtual environments
@@ -72,3 +72,4 @@ htmlcov/
 # =====================
 dist/
 build/
+/.env

@@ -1,50 +1,42 @@
+import asyncio
 import logging
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
 from app.db.supabase_client import get_supabase_admin
 
 logger = logging.getLogger(__name__)
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> dict:
-    token = credentials.credentials
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Please sign in", headers={"WWW-Authenticate": "Bearer"})
     supabase = get_supabase_admin()
-
     try:
-        payload = jwt.get_unverified_claims(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: no subject")
-        email = payload.get("email", "")
-        role = payload.get("role", "")
-        logger.info(f"Token decoded: user_id={user_id}, email={email}, role={role}")
-    except (JWTError, Exception) as e:
-        logger.error(f"Token decode failed: {e}")
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+        # Supabase verifies the signature, expiry, and account for this token.
+        response = await asyncio.to_thread(supabase.auth.get_user, credentials.credentials)
+    except Exception as exc:
+        status = getattr(exc, "status", None)
+        if status in (400, 401, 403) or type(exc).__name__ in ("AuthInvalidTokenResponseError", "AuthSessionMissingError"):
+            raise HTTPException(status_code=401, detail="Invalid or expired session") from exc
+        logger.warning("Authentication service unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="Sign-in verification is temporarily unavailable. Please retry.") from exc
+    account = response.user if response else None
+    if not account or not account.id:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    result = supabase.table("users").select("*").eq("id", user_id).execute()
-
-    if not result.data:
-        full_name = ""
-        avatar_url = ""
-        user_metadata = payload.get("user_metadata", {})
-        if user_metadata:
-            full_name = user_metadata.get("full_name", "")
-            avatar_url = user_metadata.get("avatar_url", "")
-
-        user_data = {
-            "id": user_id,
-            "email": email,
-            "full_name": full_name,
-            "avatar_url": avatar_url,
-            "auth_provider": "google",
-        }
-        logger.info(f"Creating new user: {email}")
-        supabase.table("users").upsert(user_data).execute()
-        return user_data
-
-    return result.data[0]
+    result = await asyncio.to_thread(lambda: supabase.table("users").select("*").eq("id", account.id).execute())
+    if result.data:
+        return result.data[0]
+    metadata = account.user_metadata or {}
+    user_data = {
+        "id": account.id,
+        "email": account.email or "",
+        "full_name": metadata.get("full_name", metadata.get("name", "")),
+        "avatar_url": metadata.get("avatar_url", ""),
+        "auth_provider": (account.app_metadata or {}).get("provider", "google"),
+    }
+    await asyncio.to_thread(lambda: supabase.table("users").upsert(user_data).execute())
+    return user_data

@@ -1,53 +1,44 @@
 "use client";
 
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BookOpen, Sparkles, FileText, MessageSquare } from "lucide-react";
 
 export default function LoginPage() {
   const supabase = createClient();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGoogleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` },
+      });
+      if (error) throw error;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sign-in is unavailable. Please retry.");
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
-      {/* Subtle background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 -left-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full bg-accent/5 blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-primary/3 blur-3xl" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-sm px-6">
-        {/* Logo and branding */}
-        <div className="text-center mb-10">
-          <div className="relative inline-block mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/25">
-              <BookOpen className="h-8 w-8 text-primary-foreground" />
-            </div>
-            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
-              <Sparkles className="h-3 w-3 text-accent-foreground" />
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight mb-2">NexusRAG</h1>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            AI-powered document analysis and knowledge retrieval
-          </p>
-        </div>
-
-        {/* Login card */}
-        <div className="bg-card border border-border/60 rounded-2xl p-6 shadow-sm mb-8">
-          <Button
-            onClick={handleGoogleLogin}
-            className="w-full h-11 font-medium rounded-xl gap-2.5 bg-foreground text-background hover:bg-foreground/90 shadow-sm"
-          >
+    <div className="workspace-shell welcome-page min-h-dvh flex flex-col px-5 py-6 sm:px-10">
+      <header className="flex items-center gap-2.5 text-sm font-semibold">
+        <span className="welcome-brand"><BookOpen className="size-4" /></span>
+        NexusRAG
+      </header>
+      <main className="flex flex-1 items-center justify-center py-12">
+        <section className="welcome-card w-full max-w-[380px] p-7 sm:p-9" aria-labelledby="login-title">
+          <div className="welcome-brand mb-6 size-11"><Sparkles className="size-5" /></div>
+          <p className="text-xs text-muted-foreground">A space for your knowledge</p>
+          <h1 id="login-title" className="mt-2 text-2xl font-medium tracking-tight">Welcome to NexusRAG</h1>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Bring your documents together and find a little clarity, one question at a time.</p>
+          {error && <p role="alert" className="mt-5 rounded-xl border border-destructive/30 p-3 text-sm text-destructive">{error}</p>}
+          <Button onClick={handleGoogleLogin} disabled={loading} className="mt-7 h-11 w-full rounded-full gap-2.5 text-sm shadow-none">
             <svg className="h-4 w-4" viewBox="0 0 24 24">
               <path
                 fill="currentColor"
@@ -66,31 +57,22 @@ export default function LoginPage() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            Continue with Google
+            {loading ? "Connecting…" : "Continue with Google"}
           </Button>
-        </div>
-
-        {/* Features preview */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {[
-            { icon: FileText, label: "Upload docs" },
-            { icon: MessageSquare, label: "Ask questions" },
-            { icon: Sparkles, label: "Get answers" },
-          ].map(({ icon: Icon, label }) => (
-            <div
-              key={label}
-              className="flex flex-col items-center gap-2 p-3 rounded-xl bg-muted/50 border border-border/40"
-            >
-              <Icon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
-            </div>
-          ))}
-        </div>
-
-        <p className="text-[11px] text-center text-muted-foreground/70">
-          By continuing, you agree to our Terms of Service
-        </p>
-      </div>
+          <div className="mt-7 border-t border-border/50 pt-5 space-y-3">
+            {[
+              { icon: FileText, label: "Keep your documents in one place" },
+              { icon: MessageSquare, label: "Ask questions in your own words" },
+              { icon: Sparkles, label: "Explore answers with clear sources" },
+            ].map(({ icon: Icon, label }) => (
+              <div key={label} className="flex items-center gap-3 text-xs text-muted-foreground">
+                <Icon className="size-3.5 shrink-0" /><span>{label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+      <footer className="text-center text-xs text-muted-foreground">Your documents. A clearer perspective.</footer>
     </div>
   );
 }

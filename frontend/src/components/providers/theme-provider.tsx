@@ -10,7 +10,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       defaultTheme="light"
       enableSystem
       disableTransitionOnChange
-      forcedTheme={typeof window !== "undefined" ? undefined : "light"}
     >
       {children}
     </NextThemesProvider>

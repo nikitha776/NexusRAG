@@ -7,7 +7,6 @@ import {
   Settings,
   Bell,
   MoreVertical,
-  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +29,6 @@ interface HeaderProps {
 }
 
 export function Header({
-  user,
   workspaceName,
   onSearch,
   onUpload,

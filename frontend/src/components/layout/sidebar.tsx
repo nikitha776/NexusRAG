@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { 
   Plus, 
   Settings, 
@@ -35,7 +35,6 @@ interface SidebarProps {
 
 export function Sidebar({ user, onCreateWorkspace, onLogout }: SidebarProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const { workspaces, activeWorkspace, setActiveWorkspace } = useAppStore();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["workspaces"]));
@@ -65,7 +64,6 @@ export function Sidebar({ user, onCreateWorkspace, onLogout }: SidebarProps) {
         .toUpperCase()
     : user?.email?.[0]?.toUpperCase() || "U";
 
-  const isWorkspacePage = pathname.includes("/workspace");
 
   return (
     <div

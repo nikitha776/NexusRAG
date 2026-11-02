@@ -1,14 +1,28 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 
 
 class WorkspaceCreate(BaseModel):
-    name: str
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a workspace name")
+        return value.strip()
+
+    name: str = Field(min_length=1, max_length=255)
     description: Optional[str] = None
 
 
 class WorkspaceUpdate(BaseModel):
-    name: Optional[str] = None
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value):
+        if value is not None and not value.strip():
+            raise ValueError("Enter a workspace name")
+        return value.strip() if value is not None else value
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = None
 
 
@@ -28,6 +42,7 @@ class DocumentResponse(BaseModel):
     file_size: int
     status: str
     chunk_count: int
+    error_message: Optional[str] = None
     created_at: str
 
 
@@ -58,12 +73,21 @@ class ChatMessageResponse(BaseModel):
 
 
 class RAGQueryRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1, max_length=10000)
     session_id: str
-    selected_doc_ids: List[str]
+    selected_doc_ids: List[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("query")
+    @classmethod
+    def nonblank_query(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a question")
+        return value.strip()
 
 
 class Citation(BaseModel):
+    chunk_index: Optional[int] = None
+    source_number: Optional[int] = None
     document_id: str
     filename: str
     chunk_content: str
@@ -73,3 +97,13 @@ class Citation(BaseModel):
 class RAGQueryResponse(BaseModel):
     response: str
     citations: List[Citation]
+
+
+class UploadFailure(BaseModel):
+    filename: str
+    error: str
+
+
+class UploadResponse(BaseModel):
+    documents: list[DocumentResponse]
+    errors: list[UploadFailure]

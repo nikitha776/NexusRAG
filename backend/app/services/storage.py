@@ -46,4 +46,9 @@ async def download_file_from_s3(key: str) -> bytes:
         Key=key,
     )
     logger.info(f"Downloaded from S3: s3://{_settings.S3_BUCKET}/{key}")
-    return response["Body"].read()
+    def read_body():
+        try:
+            return response["Body"].read()
+        finally:
+            response["Body"].close()
+    return await asyncio.to_thread(read_body)

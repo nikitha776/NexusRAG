@@ -1,252 +1,104 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
-import {
-  FileText,
-  Trash2,
-  Loader2,
-  Upload,
-  AlertCircle,
-  RefreshCw,
-  CheckCircle2,
-  CloudUpload,
-} from "lucide-react";
-import type { Document } from "@/types";
+import { Input } from "@/components/ui/input";
+import { FileText, Trash2, Loader2, RefreshCw, CloudUpload } from "lucide-react";
+import { toast } from "sonner";
 
-interface DocumentManagerProps {
-  workspaceId: string;
-}
-
-export function DocumentManager({ workspaceId }: DocumentManagerProps) {
-  const { documents, setDocuments, addDocuments, removeDocument, updateDocument } =
-    useAppStore();
+export function DocumentManager({ workspaceId }: { workspaceId: string }) {
+  const { documents, setDocuments, addDocuments, removeDocument, updateDocument } = useAppStore();
   const [uploading, setUploading] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const loadDocuments = useCallback(async () => {
-    try {
-      const docs = await api.documents.list(workspaceId);
-      setDocuments(docs);
-    } catch (e) {
-      console.error("Failed to load documents:", e);
-    }
-  }, [workspaceId, setDocuments]);
-
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
-
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [busy, setBusy] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const uploadLock = useRef(false);
+  const mounted = useRef(true);
   const hasProcessing = documents.some((d) => d.status === "processing");
 
   useEffect(() => {
-    if (!hasProcessing) return;
-    const interval = setInterval(loadDocuments, 3000);
-    return () => clearInterval(interval);
-  }, [hasProcessing, loadDocuments]);
+    let cancelled = false;
+    mounted.current = true;
+    const load = async () => {
+      try {
+        const docs = await api.documents.list(workspaceId);
+        if (!cancelled && useAppStore.getState().activeWorkspace?.id === workspaceId) setDocuments(docs);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not refresh sources.");
+      }
+    };
+    if (hasProcessing) void load();
+    const interval = hasProcessing ? setInterval(load, 3000) : undefined;
+    return () => { cancelled = true; mounted.current = false; clearInterval(interval); };
+  }, [workspaceId, hasProcessing, setDocuments]);
 
-  const handleUpload = async (files: File[]) => {
-    if (files.length === 0) return;
+  const upload = async (files: File[]) => {
+    if (!files.length || uploadLock.current) return;
+    const invalid = files.find((file) => !/\.(pdf|docx|txt|md|csv)$/i.test(file.name) || file.size === 0 || file.size > 50 * 1024 * 1024);
+    if (files.length > 10 || invalid) { setError(invalid ? `${invalid.name}: choose a nonempty PDF, DOCX, TXT, MD, or CSV under 50 MB.` : "Choose up to 10 files at a time."); return; }
+    uploadLock.current = true;
     setUploading(true);
-    setUploadError(null);
+    setError(null);
     try {
-      const uploaded = await api.documents.upload(workspaceId, files);
-      if (uploaded.length === 0) {
-        setUploadError("Upload returned no documents. Check backend logs.");
-      } else {
-        addDocuments(uploaded);
+      const result = await api.documents.upload(workspaceId, files);
+      if (useAppStore.getState().activeWorkspace?.id === workspaceId) addDocuments(result.documents);
+      if (result.documents.length) toast.success(`${result.documents.length} file(s) uploaded. Processing has started.`);
+      if (result.errors.length) {
+        const message = result.errors.map((item) => `${item.filename}: ${item.error}`).join("\n");
+        toast.error(message);
+        if (mounted.current) setError(message);
       }
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "Upload failed");
+      const message = e instanceof Error ? e.message : "Upload failed. Please retry.";
+      toast.error(message);
+      if (mounted.current) setError(message);
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      uploadLock.current = false;
+      if (mounted.current) setUploading(false);
+      if (input.current) input.current.value = "";
     }
   };
 
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    handleUpload(Array.from(files));
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    handleUpload(files);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  };
-
-  const handleDelete = async (docId: string) => {
-    if (!confirm("Delete this document and its embeddings?")) return;
+  const act = async (id: string, action: "delete" | "retry") => {
+    if (busy) return;
+    if (action === "delete" && !confirm("Delete this source and its searchable content? Existing chat history will remain.")) return;
+    setBusy(id);
+    setError(null);
     try {
-      await api.documents.delete(workspaceId, docId);
-      removeDocument(docId);
-    } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "Delete failed");
-    }
+      if (action === "delete") {
+        await api.documents.delete(workspaceId, id);
+        if (useAppStore.getState().activeWorkspace?.id === workspaceId) removeDocument(id);
+      } else {
+        await api.documents.reprocess(workspaceId, id);
+        if (useAppStore.getState().activeWorkspace?.id === workspaceId) updateDocument(id, { status: "processing", error_message: null, chunk_count: 0 });
+      }
+    } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "Could not update this source."); }
+    finally { if (mounted.current) setBusy(null); }
   };
+  const visible = documents.filter((doc) => doc.filename.toLowerCase().includes(search.toLowerCase()) && (filter === "all" || doc.status === filter));
 
-  const handleReprocess = async (docId: string) => {
-    try {
-      updateDocument(docId, { status: "processing" as const, chunk_count: 0 });
-      await api.documents.reprocess(workspaceId, docId);
-    } catch (e) {
-      // Handle error
-    }
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const statusIcon = (status: Document["status"]) => {
-    switch (status) {
-      case "ready":
-        return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
-      case "processing":
-        return <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />;
-      case "error":
-        return <AlertCircle className="h-3.5 w-3.5 text-red-500" />;
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-primary/10">
-            <FileText className="h-4 w-4 text-primary" />
-          </div>
-          <h3 className="text-sm font-semibold text-foreground">Sources</h3>
-        </div>
-        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-          {documents.length}
-        </span>
-      </div>
-
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileInput}
-        multiple
-        accept=".pdf,.txt,.md,.csv,.doc,.docx"
-        className="hidden"
-      />
-
-      {/* Upload area */}
-      <div
-        className={`relative border-2 border-dashed rounded-2xl p-4 transition-all duration-200 cursor-pointer ${
-          isDragOver
-            ? "border-primary bg-primary/5 scale-[1.02]"
-            : "border-border/60 hover:border-primary/40 hover:bg-muted/30"
-        } ${uploading ? "opacity-60 pointer-events-none" : ""}`}
-        onClick={() => fileInputRef.current?.click()}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-      >
-        <div className="flex flex-col items-center gap-2 text-center">
-          {uploading ? (
-            <Loader2 className="h-6 w-6 text-primary animate-spin" />
-          ) : (
-            <CloudUpload className={`h-6 w-6 ${isDragOver ? "text-primary" : "text-muted-foreground"} transition-colors`} />
-          )}
-          <div>
-            <p className="text-sm font-medium">
-              {uploading ? "Uploading..." : "Drop files here or click to upload"}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              PDF, TXT, MD, CSV, DOC supported
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {uploadError && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-red-700">
-          <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          <p className="text-xs flex-1">{uploadError}</p>
-          <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">&times;</button>
-        </div>
-      )}
-
-      {documents.length === 0 ? (
-        <div className="text-center py-8">
-          <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
-            <FileText className="h-6 w-6 text-muted-foreground" />
-          </div>
-          <p className="text-sm font-medium mb-1">No sources yet</p>
-          <p className="text-xs text-muted-foreground">
-            Upload documents to start building your knowledge base
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-1">
-          {documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="group flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-all duration-200"
-            >
-              <div className="flex items-center justify-center h-9 w-9 rounded-xl bg-muted flex-shrink-0 group-hover:bg-muted/80 transition-colors">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{doc.filename}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  {statusIcon(doc.status)}
-                  <span className="text-[11px] text-muted-foreground">
-                    {doc.status === "ready"
-                      ? `${formatFileSize(doc.file_size)} · ${doc.chunk_count} chunks`
-                      : doc.status === "processing"
-                      ? "Processing..."
-                      : "Failed"}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {doc.status === "error" && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 flex-shrink-0 rounded-lg"
-                    onClick={() => handleReprocess(doc.id)}
-                    title="Retry processing"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 flex-shrink-0 rounded-lg hover:bg-red-100 hover:text-red-600"
-                  onClick={() => handleDelete(doc.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  return <section className="space-y-4" aria-label="Document library">
+    <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Document library</h2><span className="rounded-full bg-muted px-2 text-xs">{documents.length}</span></div>
+    <input ref={input} type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.csv" multiple onChange={(e) => void upload(Array.from(e.target.files || []))} />
+    <button type="button" disabled={uploading} onClick={() => input.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); void upload(Array.from(e.dataTransfer.files)); }} className={`w-full rounded-2xl border-2 border-dashed p-5 text-center transition-colors disabled:opacity-60 ${dragging ? "border-primary bg-primary/10" : "border-border hover:border-primary/50 hover:bg-muted/40"}`}>
+      {uploading ? <Loader2 className="mx-auto mb-2 size-6 animate-spin" /> : <CloudUpload className="mx-auto mb-2 size-6 text-primary" />}
+      <span className="block text-sm font-medium">{uploading ? "Uploading…" : "Drop files or browse"}</span>
+      <span className="mt-1 block text-xs text-muted-foreground">PDF, DOCX, TXT, MD, CSV<br />Up to 50 MB each · 10 files per upload</span>
+    </button>
+    {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-xs whitespace-pre-wrap">{error}<button className="block mt-2 underline" onClick={() => setError(null)}>Dismiss</button></div>}
+    {documents.length > 0 && <div className="space-y-2"><Input aria-label="Search documents" placeholder="Find a document…" value={search} onChange={(e) => setSearch(e.target.value)} /><select aria-label="Filter document status" value={filter} onChange={(e) => setFilter(e.target.value)} className="w-full rounded-lg border bg-background p-2 text-xs"><option value="all">All statuses</option><option value="ready">Ready</option><option value="processing">Processing</option><option value="error">Needs attention</option></select></div>}
+    {!documents.length && <p className="py-4 text-center text-xs text-muted-foreground">Upload your first source, then select it below to start asking questions.</p>}
+    {documents.length > 0 && !visible.length && <p className="text-xs text-muted-foreground">No documents match your filters.</p>}
+    <ul className="space-y-2">{visible.map((doc) => <li key={doc.id} className="rounded-xl border border-border/60 p-3">
+      <div className="flex items-start gap-2"><FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={doc.filename}>{doc.filename}</p><p className="mt-1 text-xs text-muted-foreground">{doc.status === "ready" ? `Ready · ${(doc.file_size / 1024).toFixed(0)} KB` : doc.status === "processing" ? "Processing…" : "Needs attention"}</p></div>
+        {doc.status === "error" && <Button variant="ghost" size="icon" aria-label={`Retry ${doc.filename}`} disabled={busy !== null} onClick={() => void act(doc.id, "retry")}><RefreshCw className="size-4" /></Button>}
+        <Button variant="ghost" size="icon" aria-label={`Delete ${doc.filename}`} disabled={busy !== null || doc.status === "processing"} onClick={() => void act(doc.id, "delete")}><Trash2 className="size-4" /></Button></div>
+      {doc.status === "error" && <p className="mt-2 text-xs text-destructive">{doc.error_message || "Processing failed. Retry, or check that the file contains readable text."}</p>}
+    </li>)}</ul>
+  </section>;
 }

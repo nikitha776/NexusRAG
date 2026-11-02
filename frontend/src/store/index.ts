@@ -36,16 +36,20 @@ interface AppState {
   setIsLoading: (loading: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set) => ({
   workspaces: [],
   setWorkspaces: (workspaces) => set({ workspaces }),
   activeWorkspace: null,
-  setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
+  setActiveWorkspace: (workspace) => set((state) => state.activeWorkspace?.id === workspace?.id
+    ? { activeWorkspace: workspace }
+    : { activeWorkspace: workspace, documents: [], selectedDocIds: new Set(), messages: [], chatSessions: [], activeSessionId: null, isLoading: false }),
 
   documents: [],
-  setDocuments: (documents) => set({ documents }),
+  setDocuments: (documents) => set((state) => ({ documents,
+    selectedDocIds: new Set([...state.selectedDocIds].filter((id) => documents.some((d) => d.id === id && d.status === "ready"))),
+  })),
   addDocuments: (newDocs) =>
-    set((state) => ({ documents: [...newDocs, ...state.documents] })),
+    set((state) => ({ documents: [...newDocs.filter((doc) => !state.documents.some((existing) => existing.id === doc.id)), ...state.documents] })),
   removeDocument: (id) =>
     set((state) => ({
       documents: state.documents.filter((d) => d.id !== id),
@@ -57,6 +61,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   updateDocument: (id, updates) =>
     set((state) => ({
+      selectedDocIds: updates.status && updates.status !== "ready" ? new Set([...state.selectedDocIds].filter((selected) => selected !== id)) : state.selectedDocIds,
       documents: state.documents.map((d) =>
         d.id === id ? { ...d, ...updates } : d
       ),
@@ -68,7 +73,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newSet = new Set(state.selectedDocIds);
       if (newSet.has(id)) {
         newSet.delete(id);
-      } else {
+      } else if (state.documents.some((d) => d.id === id && d.status === "ready")) {
         newSet.add(id);
       }
       return { selectedDocIds: newSet };

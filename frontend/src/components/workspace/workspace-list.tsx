@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -14,20 +15,27 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, FolderOpen, Trash2, FileText, ArrowRight } from "lucide-react";
+import { Plus, FolderOpen, Trash2, FileText, ArrowRight, Pencil } from "lucide-react";
 import type { Workspace } from "@/types";
 
 interface WorkspaceListProps {
   workspaces: Workspace[];
   onRefresh: () => void;
+  isFiltered?: boolean;
 }
 
-export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
+export function WorkspaceList({ workspaces, onRefresh, isFiltered }: WorkspaceListProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -39,7 +47,7 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
       setOpen(false);
       onRefresh();
     } catch (e) {
-      console.error("Failed to create workspace:", e);
+      toast.error(e instanceof Error ? e.message : "Could not create the workspace.");
     } finally {
       setCreating(false);
     }
@@ -51,7 +59,31 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
       await api.workspaces.delete(id);
       onRefresh();
     } catch (e) {
-      console.error("Failed to delete workspace:", e);
+      toast.error(e instanceof Error ? e.message : "Could not delete the workspace.");
+    }
+  };
+
+  const openEdit = (ws: Workspace) => {
+    setEditId(ws.id);
+    setEditName(ws.name);
+    setEditDescription(ws.description || "");
+    setEditOpen(true);
+  };
+
+  const handleEdit = async () => {
+    if (!editId || !editName.trim()) return;
+    setSaving(true);
+    try {
+      await api.workspaces.update(editId, {
+        name: editName.trim(),
+        description: editDescription.trim(),
+      });
+      setEditOpen(false);
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save changes.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -59,17 +91,17 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Workspaces</h1>
+          <h2 className="text-base font-semibold tracking-tight">Workspaces</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Organize your documents into knowledge bases
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button className="rounded-xl gap-2 shadow-sm" />}>
+          <DialogTrigger render={<Button className="rounded-full gap-2 shadow-none" />}>
             <Plus className="h-4 w-4" />
             New Workspace
           </DialogTrigger>
-          <DialogContent className="rounded-2xl">
+          <DialogContent className="welcome-page rounded-3xl">
             <DialogHeader>
               <DialogTitle className="text-lg">Create workspace</DialogTitle>
             </DialogHeader>
@@ -77,6 +109,7 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
               <div>
                 <Label htmlFor="name" className="text-sm font-medium">Name</Label>
                 <Input
+                  maxLength={255}
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -103,7 +136,7 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
         </Dialog>
       </div>
 
-      {workspaces.length === 0 ? (
+      {workspaces.length === 0 && isFiltered ? <p className="py-10 text-center text-muted-foreground">No workspaces match your search.</p> : workspaces.length === 0 ? (
         <div className="text-center py-20">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center mx-auto mb-5 shadow-sm">
             <FolderOpen className="h-8 w-8 text-muted-foreground" />
@@ -124,7 +157,10 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
           {workspaces.map((ws) => (
             <div
               key={ws.id}
-              className="group relative bg-card border border-border/60 rounded-2xl p-5 hover:border-border hover:shadow-md transition-all duration-200 cursor-pointer overflow-hidden"
+              className="welcome-card group relative p-5 transition-colors duration-200 cursor-pointer overflow-hidden hover:bg-card focus-visible:outline-2 focus-visible:outline-ring"
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && e.key === "Enter") router.push(`/workspace/${ws.id}`); }}
               onClick={() => router.push(`/workspace/${ws.id}`)}
             >
               {/* Hover gradient overlay */}
@@ -143,17 +179,32 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
                       </span>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity -mr-1 -mt-1"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(ws.id);
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                  </Button>
+                  <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity -mr-1 -mt-1">
+                    <Button
+                      aria-label={`Edit ${ws.name}`}
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEdit(ws);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-primary" />
+                    </Button>
+                    <Button
+                      aria-label={`Delete ${ws.name}`}
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(ws.id);
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
                 </div>
 
                 {ws.description && (
@@ -174,6 +225,42 @@ export function WorkspaceList({ workspaces, onRefresh }: WorkspaceListProps) {
           ))}
         </div>
       )}
+
+      {/* Edit workspace dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="welcome-page rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Edit workspace</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label htmlFor="edit-name" className="text-sm font-medium">Name</Label>
+              <Input
+                maxLength={255}
+                id="edit-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="e.g., Research Papers"
+                className="mt-2 rounded-xl"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-description" className="text-sm font-medium">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="What will this workspace be used for?"
+                rows={2}
+                className="mt-2 rounded-xl resize-none"
+              />
+            </div>
+            <Button onClick={handleEdit} disabled={saving || !editName.trim()} className="w-full rounded-xl h-10">
+              {saving ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

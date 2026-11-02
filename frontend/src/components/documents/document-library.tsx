@@ -12,12 +12,10 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { DocumentCard } from "@/components/documents/document-card";
-import { Badge } from "@/components/ui/badge-enhanced";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  DropdownMenuItem,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import type { Document } from "@/types";

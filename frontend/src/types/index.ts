@@ -14,6 +14,7 @@ export interface Document {
   file_size: number;
   status: "processing" | "ready" | "error";
   chunk_count: number;
+  error_message?: string | null;
   created_at: string;
 }
 
@@ -27,10 +28,19 @@ export interface ChatSession {
 }
 
 export interface Citation {
+  chunk_index?: number | null;
+  source_number?: number;
   document_id: string;
   filename: string;
   chunk_content: string;
   score: number;
+}
+
+export interface DocumentPreview {
+  file_type?: string;
+  id: string;
+  filename: string;
+  chunks: { chunk_index: number; content: string }[];
 }
 
 export interface ChatMessage {

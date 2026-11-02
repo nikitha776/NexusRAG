@@ -6,11 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, AlertCircle, FileCheck, FileX } from "lucide-react";
 
-interface FileSelectorProps {
-  workspaceId: string;
-}
-
-export function FileSelector({ workspaceId }: FileSelectorProps) {
+export function FileSelector() {
   const { documents, selectedDocIds, toggleDocSelection, selectAllDocs, deselectAllDocs } =
     useAppStore();
 

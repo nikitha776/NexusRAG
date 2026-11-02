@@ -4,6 +4,7 @@ FROM node:24-slim AS deps
 WORKDIR /app
 
 COPY package*.json ./
+COPY scripts/pdf-assets.mjs ./scripts/pdf-assets.mjs
 
 RUN npm ci
 

@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import asyncio
+from app.config import get_settings
 
 from app.api import workspaces, documents, chat, rag
 
@@ -15,12 +17,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://3.6.16.170:3000",
-        "http://13.235.118.53:3000",
-    ],
+    allow_origins=get_settings().CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,16 +31,14 @@ app.include_router(rag.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
-    from app.db.engine import init_db
-    from app.services.embedding import get_embedding_model
     from app.services.rag import ensure_collection
     try:
-        await init_db()
-        get_embedding_model()
-        ensure_collection()
+        # SQL schema is managed by migrations; the API uses Supabase REST.
+        # Keep model loading lazy so health checks don't wait on downloads.
+        await asyncio.to_thread(ensure_collection)
     except Exception as e:
         logger.warning(
-            "Startup warm-up failed (Qdrant/embedding not ready yet): %s. "
+            "Vector index initialization failed: %s. "
             "The service will continue and retry on first request.",
             e,
         )

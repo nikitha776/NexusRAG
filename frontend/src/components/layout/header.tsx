@@ -3,7 +3,9 @@
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { LogOut, BookOpen, Settings } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { toast } from "sonner";
+import { useAppStore } from "@/store";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -23,18 +25,22 @@ export function Header({ user }: HeaderProps) {
   const supabase = createClient();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) { toast.error("Could not sign out. Please retry."); return; }
+    useAppStore.getState().setActiveWorkspace(null);
+    useAppStore.getState().setWorkspaces([]);
     router.push("/login");
+    router.refresh();
   };
 
   return (
     <header className="h-14 border-b border-border/60 bg-card/80 backdrop-blur-sm flex items-center px-5 shrink-0">
-      <div className="flex items-center gap-2.5">
+      <Link href="/dashboard" className="flex items-center gap-2.5" aria-label="NexusRAG workspaces">
         <div className="p-1.5 rounded-lg bg-primary/10">
           <BookOpen className="h-4 w-4 text-primary" />
         </div>
         <span className="font-bold text-sm tracking-tight">NexusRAG</span>
-      </div>
+      </Link>
 
       <div className="flex-1" />
 
